@@ -27,7 +27,9 @@
 #include <iostream>
 #include <vector>
 #include <limits>
-#include<algorithm>
+#include <algorithm>
+#include <cstdint> // Added the header cstdin to support uint64_t
+
 namespace ENCRYPTO {
 constexpr auto DUMMY_ELEMENT = std::numeric_limits<std::size_t>::max();
 
