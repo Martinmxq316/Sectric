@@ -4,6 +4,7 @@ declare -A file_mapping
 file_mapping=(
     ["batch_equality.h"]="../extern/2PC-Circuit-PSI/src/common/batch_equality.h"
     ["circuit_psi.cpp"]="../extern/2PC-Circuit-PSI/src/circuit_psi.cpp"
+    ["cycle4_psi.cpp"]="../extern/2PC-Circuit-PSI/src/cycle4_psi.cpp"
     ["triangle.h"]="../extern/2PC-Circuit-PSI/src/triangle.h"
     ["cuckoo_hashing.cpp"]="../extern/2PC-Circuit-PSI/aux_hash/cuckoo_hashing.cpp"
     ["cuckoo_hashing.h"]="../extern/2PC-Circuit-PSI/aux_hash/cuckoo_hashing.h"
@@ -30,4 +31,3 @@ for src_file in "${!file_mapping[@]}"; do
 done
 
 echo "文件复制完成"
-

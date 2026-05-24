@@ -91,4 +91,13 @@ if (PSI_ANALYTICS_BUILD_EXAMPLE)
     set_target_properties(gcf_psi
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
+
+    add_executable(gcf_4cycle cycle4_psi.cpp)
+
+    target_link_libraries(gcf_4cycle PUBLIC
+            src
+            )
+    set_target_properties(gcf_4cycle
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    )
 endif (PSI_ANALYTICS_BUILD_EXAMPLE)

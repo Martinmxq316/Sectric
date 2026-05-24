@@ -9,5 +9,5 @@ make -j
 
 mkdir -p ../../../bin
 cp ./bin/gcf_psi ../../../bin/
-
+cp ./bin/gcf_4cycle ../../../bin/
 
