@@ -14,10 +14,8 @@ def main():
 
 
     neighbors = []
-    nt = "64"
     file_name=input("Please enter the filename:")
-    # num_d=input("Please enter the MAX_DEGREE:")
-    # num_v=input("Please enter the NUM_VERTEX:")
+    # pattern : name_nodeCount_edgeCount_maxDegree
     MAX_DEGREE=(file_name.split('_')[3])
     NUM_VERTEX=(file_name.split('_')[1])
     filename = f"./data/neighbor_files_"+file_name+f"/neighbor_{x}.txt"
@@ -30,9 +28,9 @@ def main():
         print(f"The file {filename} does not exist.")
         return
 
-    processes = []
-    print("The count of this node is：", len(neighbors))
+    print("The count of the neighbors of the node is: ", len(neighbors))
 
+    processes = []
 
     command = ["./bin/gcf_psi", "--idx", str(x), "--role", str(1),"--name",file_name,"--num_d",MAX_DEGREE,"--num_v",NUM_VERTEX]
     process = subprocess.Popen(command)

@@ -29,6 +29,8 @@
 #include <iostream>
 
 #include <boost/program_options.hpp>
+#include <limits>
+#include <stdexcept>
 
 #include <ENCRYPTO_utils/crypto/crypto.h>
 #include <ENCRYPTO_utils/parse_options.h>
@@ -49,6 +51,21 @@
 string file_name = "./data/neighbor_files_";
 uint64_t MAX_DEGREE;
 uint64_t NUM_VERTEX;
+uint64_t checked_pow2_u64(uint64_t shift)
+{
+  if (shift >= std::numeric_limits<uint64_t>::digits)
+  {
+    throw std::invalid_argument("left shift is too large");
+  }
+  return 1ULL << shift;
+}
+
+uint64_t baxos_bin_size_from_log(uint64_t log_value)
+{
+  uint64_t shift = log_value > 6 ? log_value - 6 : 0;
+  shift = std::max<uint64_t>(8, shift);
+  return checked_pow2_u64(shift);
+}
 // https://stackoverflow.com/questions/24161243/how-can-i-add-together-two-sse-registers
 inline block unsigned_lessthan(block a, block b)
 {
@@ -103,7 +120,7 @@ struct VOLEOPRFTestCase
 VOLEOPRFTestCase GenTestCase(size_t LOG_INPUT_NUM)
 {
   VOLEOPRFTestCase testcase;
-  testcase.INPUT_NUM = 1 << LOG_INPUT_NUM;
+  testcase.INPUT_NUM = checked_pow2_u64(LOG_INPUT_NUM);
 
   PRG::Seed seed = PRG::SetSeed(fixed_seed, 0); // initialize PRG
   testcase.vec_Y = PRG::GenRandomBlocks(seed, testcase.INPUT_NUM);
@@ -253,9 +270,15 @@ void psi_ca_receiver(std::vector<block> &set, ENCRYPTO::PsiAnalyticsContext &con
   //   Block::PrintBlock(result[i]);
   // }
   // receive OKVS
-  Baxos<gf_128> baxos(MAX_DEGREE * NUM_VERTEX * 3, 1 << (num2 - 6), 3);
+  
+  std::cout << "Reach first Baxos\n";
+  auto first_baxos_bin_size = baxos_bin_size_from_log(num2);
+  std::cout << MAX_DEGREE * NUM_VERTEX * 3 << " " << first_baxos_bin_size << std::endl;
+  Baxos<gf_128> baxos(MAX_DEGREE * NUM_VERTEX * 3, first_baxos_bin_size, 3);
+  std::cout << "Pass first Baxos\n";
   uint64_t tmp;
   io2.ReceiveInteger(tmp);
+  std::cout << baxos.total_size * baxos.bin_num << std::endl;
   std::vector<block> okvs(baxos.total_size * baxos.bin_num, Block::zero_block);
   std::cout << "begin receive okvs:" << std::endl;
 
@@ -276,7 +299,7 @@ void psi_ca_receiver(std::vector<block> &set, ENCRYPTO::PsiAnalyticsContext &con
 
   std::vector<block> eq_blocks(nbins, Block::zero_block);
   for (auto i = 0; i < idxs.size(); i++)
-    eq_blocks[idxs[i]] = decode_result[i];
+    eq_blocks[idxs[i]] = decode_result[idxs[i]];
   // Block::PrintBlocks(eq_blocks);
   // decode_result.clear();
   // decode_result.shrink_to_fit();
@@ -322,9 +345,9 @@ void psi_ca_receiver(std::vector<block> &set, ENCRYPTO::PsiAnalyticsContext &con
   {
     auto block_0 = Block::zero_block;
     ot[ans[i]].emplace_back(ot_r[i]);
-    if (i == idxs[j])
+    if (j < idxs.size() && i == idxs[j])
     {
-      auto tmp = map[((uint64_t *)(&ck[j]))[0]];
+      auto tmp = map[((uint64_t *)(&ck[idxs[j]]))[0]];
       // std::cout << tmp << std::endl;
 
       block_0 = Block::MakeBlock(0, tmp);
@@ -399,7 +422,12 @@ void send_baxos(NetIO &io, std::vector<block> &key, std::vector<block> &value, u
 {
   // test_baxos_block();
   // auto tmp=get_baxos_block(key,value);
-  Baxos<gf_128> baxos(baxos_size, 1 << (num - 6), 3);
+  std::cout << "Reach send_baxos\n";
+  auto send_baxos_bin_size = baxos_bin_size_from_log(num);
+  std::cout << baxos_size << " " << send_baxos_bin_size << std::endl;
+  Baxos<gf_128> baxos(baxos_size, send_baxos_bin_size, 3);
+  std::cout << "Pass send_baxos\n";
+  std::cout << baxos.bin_num * baxos.total_size << std::endl;
   std::vector<block> encode_result(baxos.bin_num * baxos.total_size);
   std::cout << "begin solve" << key.size() << " " << value.size() << " " << encode_result.size() << std::endl;
   auto seed = PRG::SetSeed();

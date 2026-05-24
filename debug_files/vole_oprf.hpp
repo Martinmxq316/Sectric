@@ -4,6 +4,9 @@
 #include "../../utility/print.hpp"
 #include "../okvs/baxos.hpp"
 #include"../vole/vole.hpp"
+#include <algorithm>
+#include <limits>
+#include <stdexcept>
 
 inline std::vector<std::vector<uint8_t>> BlockToV8(std::vector<block> Vec){
         auto size=Vec.size();
@@ -42,6 +45,14 @@ inline std::vector<block> ByteToBlock(std::vector<uint8_t> matrixx){
 
 namespace VOLEOPRF
 {
+    inline size_t CheckedPow2(size_t shift)
+    {
+        if (shift >= std::numeric_limits<size_t>::digits) {
+            throw std::invalid_argument("VOLEOPRF::Setup shift is too large");
+        }
+        return size_t(1) << shift;
+    }
+
     struct PP
     {
         
@@ -66,16 +77,33 @@ namespace VOLEOPRF
         size_t thread_num;
     };
 
+    inline void PrintPP(const char *label, const PP &pp)
+    {
+        std::cout << label
+                  << " INPUT_NUM=" << pp.INPUT_NUM
+                  << " okvs_bin_size=" << pp.okvs_bin_size
+                  << " okvs.bin_num=" << pp.okvs.bin_num
+                  << " okvs.total_size=" << pp.okvs.total_size
+                  << " okvs_output_size=" << pp.okvs_output_size
+                  << std::endl;
+    }
+
     PP Setup(size_t LOG_INPUT_NUM, size_t STATISTICAL_SECURITY_PARAMETER = 40)
     {
         PP pp;
         
-        pp.INPUT_NUM = 1ull << LOG_INPUT_NUM; // INPUT_NUM = 2^{LOG_INPUT_NUM}
+        pp.INPUT_NUM = CheckedPow2(LOG_INPUT_NUM); // INPUT_NUM = 2^{LOG_INPUT_NUM}
         pp.STATISTICAL_SECURITY_PARAMETER = STATISTICAL_SECURITY_PARAMETER;
         
-        pp.okvs_bin_size = 1ull << (std::max(uint64_t(8),LOG_INPUT_NUM-7));
+        std::cout << "LOG_INPUT_NUM:  " << LOG_INPUT_NUM << std::endl;
+        size_t okvs_exp = LOG_INPUT_NUM > 7 ? LOG_INPUT_NUM - 7 : 0;
+        okvs_exp = std::max<size_t>(8, okvs_exp);
+        pp.okvs_bin_size = CheckedPow2(okvs_exp);
+        std::cout << "okvs_bin_size:  " << pp.okvs_bin_size << std::endl;
         pp.okvs = Baxos<gf_128>(pp.INPUT_NUM, pp.okvs_bin_size, 3, STATISTICAL_SECURITY_PARAMETER);
         pp.okvs_output_size = pp.okvs.bin_num * pp.okvs.total_size;
+        std::cout << "okvs_output_size:  " << pp.okvs_output_size << std::endl;
+
         
         pp.KEY_SIZE = 16*pp.okvs_output_size;
         pp.RANGE_SIZE = 16; // byte length of each item
@@ -239,6 +267,9 @@ namespace VOLEOPRF
 
     std::vector<block> Client1(NetIO &io, PP &pp, std::vector<block> &vec_X, size_t ITEM_NUM)
     {
+        std::cout << "VOLEOPRF::Client1 begin vec_X.size=" << vec_X.size()
+                  << " ITEM_NUM=" << ITEM_NUM << std::endl;
+        PrintPP("VOLEOPRF::Client1 pp", pp);
         
         // the seed used to generate the initial random data
         PRG::Seed seed = PRG::SetSeed();
@@ -248,20 +279,29 @@ namespace VOLEOPRF
         PRG::Seed okvs_seed = PRG::SetSeed(&seed_r, 0);
         pp.okvs.seed = okvs_seed;
 
+        std::cout << "VOLEOPRF::Client1 okvs.seed set" << std::endl;
         // Fig 4.Step 2:the receiver solves the systems
         auto size = pp.okvs_output_size;
+        std::cout << "VOLEOPRF::Client1 size=" << size << std::endl;
         block a0 = _mm_set_epi64x(0ll, 0ll);
         std::vector<block> vec_zero(ITEM_NUM,a0);
         
         std::vector<block> P(size);
+        std::cout << "VOLEOPRF::Client1 before okvs.solve P.size=" << P.size()
+                  << " vec_zero.size=" << vec_zero.size() << std::endl;
         pp.okvs.solve(vec_X, vec_zero, P, nullptr, pp.thread_num);
+        std::cout << "VOLEOPRF::Client1 after okvs.solve P.size=" << P.size() << std::endl;
 
         // Fig 4.Step 3:VOLE
         std::vector<block> A;
         std::vector<block> C;
         // PrintSplitLine('-');
         //std::cout << "length of VOLE = " << size << std::endl; 
+        std::cout << "VOLEOPRF::Client1 before VOLE_A A.size=" << A.size()
+                  << " C.size=" << C.size() << std::endl;
         A = VOLE::VOLE_A(io, size, C); 
+        std::cout << "VOLEOPRF::Client1 after VOLE_A A.size=" << A.size()
+                  << " C.size=" << C.size() << std::endl;
 
 
         // Fig 4.Step 4:send r
@@ -290,7 +330,10 @@ namespace VOLEOPRF
 
         // Prepare for Fig 4.Step 6 Decode(C,x)
         std::vector<block> output(ITEM_NUM);
+        std::cout << "VOLEOPRF::Client1 before okvs.decode output.size=" << output.size()
+                  << " C.size=" << C.size() << std::endl;
         pp.okvs.decode(vec_X, output, C, pp.thread_num);
+        std::cout << "VOLEOPRF::Client1 after okvs.decode output.size=" << output.size() << std::endl;
         
     // 	PrintSplitLine('-');
     // std::cout << "VOLE-based OPRF: Receiver ===> vector_A ===> Sender [" 
@@ -301,6 +344,8 @@ namespace VOLEOPRF
 
     std::vector<uint8_t> Server1(NetIO &io, PP &pp)
     {
+        std::cout << "VOLEOPRF::Server1 begin" << std::endl;
+        PrintPP("VOLEOPRF::Server1 pp", pp);
         // PrintSplitLine('-');
 
         // the seed used to generate the initial random data
@@ -310,12 +355,15 @@ namespace VOLEOPRF
         // Fig.4 Step 1:the Sender samples ws ← F
         pp.Delta = random_blocks[1];
         auto size = pp.okvs_output_size;
+        std::cout << "VOLEOPRF::Server1 size=" << size << std::endl;
 
         // Fig 4.Step 3:VOLE
         //PrintSplitLine('-');
         //std::cout << "length of VOLE = " << size << std::endl; 
         std::vector<block> K;
+        std::cout << "VOLEOPRF::Server1 before VOLE_B K.size=" << K.size() << std::endl;
         VOLE::VOLE_B(io, size, K,pp.Delta);
+        std::cout << "VOLEOPRF::Server1 after VOLE_B K.size=" << K.size() << std::endl;
 
 	        
         // Fig 4.Step 4: the sender receives r
@@ -329,6 +377,8 @@ namespace VOLEOPRF
  
         // Fig 4.Step 4: the sender receives A
         auto A = std::vector<block>(size);
+        std::cout << "VOLEOPRF::Server1 receive A.size=" << A.size()
+                  << " K.size=" << K.size() << std::endl;
         auto P_pointer = A.data();
         io.ReceiveBlocks(P_pointer, size);
 
