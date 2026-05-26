@@ -66,6 +66,37 @@ uint64_t baxos_bin_size_from_log(uint64_t log_value)
   shift = std::max<uint64_t>(8, shift);
   return checked_pow2_u64(shift);
 }
+
+uint64_t ceil_log2_u64(uint64_t value)
+{
+  if (value <= 1)
+    return 0;
+
+  uint64_t log_value = 0;
+  uint64_t power = 1;
+  while (power < value)
+  {
+    power = checked_pow2_u64(++log_value);
+  }
+  return log_value;
+}
+
+uint64_t round_up_to_multiple_u64(uint64_t value, uint64_t multiple)
+{
+  if (multiple == 0)
+  {
+    throw std::invalid_argument("multiple must be non-zero");
+  }
+
+  uint64_t remainder = value % multiple;
+  return remainder == 0 ? value : value + multiple - remainder;
+}
+
+uint64_t padded_psi_nbins(uint64_t raw_bin_num, uint64_t input_size)
+{
+  uint64_t kMinPsiBins = std::min<uint64_t>(input_size, 256);
+  return std::max<uint64_t>(round_up_to_multiple_u64(raw_bin_num, 8), kMinPsiBins);
+}
 // https://stackoverflow.com/questions/24161243/how-can-i-add-together-two-sse-registers
 inline block unsigned_lessthan(block a, block b)
 {
@@ -182,8 +213,7 @@ void psi_ca_receiver(std::vector<block> &set, ENCRYPTO::PsiAnalyticsContext &con
 {
   VOLEOPRF::PP pp;
   uint64_t real_num1 = set.size(), real_num2 = MAX_DEGREE * NUM_VERTEX;
-  uint64_t num1 = std::ceil(std::log2(MAX_DEGREE*MAX_DEGREE)), num2 = std::ceil(std::log2(real_num2)); // std::cout<<"Please enter:"<<std::endl;std::cin>>num1>>num2;
-  pp = VOLEOPRF::Setup(num1 + 1);
+  uint64_t num2 = std::ceil(std::log2(real_num2)); // std::cout<<"Please enter:"<<std::endl;std::cin>>num1>>num2;
   // std::vector<block> tmp;
   // for (auto i = 0; i < 33; i++) {
   //   tmp.emplace_back(Block::MakeBlock(0, i));
@@ -211,7 +241,11 @@ void psi_ca_receiver(std::vector<block> &set, ENCRYPTO::PsiAnalyticsContext &con
   //     std::cout << "0 ";
 
   uint64_t bin_num = MAX_DEGREE*MAX_DEGREE * 1.27;
-  uint64_t nbins = bin_num + (bin_num % 8 == 0 ? 0 : (8 - bin_num % 8));
+  pp = VOLEOPRF::Setup(ceil_log2_u64(bin_num));
+  std::cout << "!!!!" << bin_num << " " << pp.INPUT_NUM << std::endl;
+  uint64_t nbins = padded_psi_nbins(bin_num, pp.INPUT_NUM);
+  // uint64_t nbins = padded_psi_nbins(bin_num, 256);
+  // pp = VOLEOPRF::Setup(ceil_log2_u64(nbins));
   std::cout << "print:" << real_num1 << " " << bin_num << " " << nbins << std::endl;
   io.SendBytes(&nbins, 8);
   getchar();
@@ -224,11 +258,18 @@ void psi_ca_receiver(std::vector<block> &set, ENCRYPTO::PsiAnalyticsContext &con
   {
     uint64_t low = ((uint64_t *)(&set[i]))[0];
     uint64_t high = ((uint64_t *)(&set[i]))[1];
-    vec.emplace_back(low ^ high);
-    values.emplace_back(1);
-    map[vec[i]] = values[i];
+    uint64_t key = low ^ high;
+    if (map.emplace(key, 1).second)
+    {
+      vec.emplace_back(key);
+      values.emplace_back(1);
+    }
+    else  
+      std::cout << "ERROR!\n";
     // std::cout<<low<<"+"<<high<<" ";
   }
+
+  /*
   for (auto i = 0; i < MAX_DEGREE*MAX_DEGREE-real_num1; i++)
   {
     auto rands=PRG::GenRandomBytes(seed,8);
@@ -239,6 +280,7 @@ void psi_ca_receiver(std::vector<block> &set, ENCRYPTO::PsiAnalyticsContext &con
     // std::cout<<low<<"+"<<high<<" ";
   }
   std::cout << countDuplicates(vec) << std::endl;
+  */
   ENCRYPTO::CuckooTable cuckoo_table(static_cast<std::size_t>(nbins));
   cuckoo_table.SetNumOfHashFunctions(context.nfuns);
   cuckoo_table.Insert(vec);
@@ -253,7 +295,8 @@ void psi_ca_receiver(std::vector<block> &set, ENCRYPTO::PsiAnalyticsContext &con
   auto cuckoo_table_v = std::get<1>(idx_cuckoo_table);
   // oprf
   std::cout<<"begin oprf client:"<<std::endl;
-  std::vector<block> result = VOLEOPRF::Client1(io, pp, cuckoo_table_v, pp.INPUT_NUM);
+  std::cout << pp.INPUT_NUM << " " << cuckoo_table_v.size() << std::endl;
+  std::vector<block> result = VOLEOPRF::Client1(io, pp, cuckoo_table_v, cuckoo_table_v.size());
   vec.clear();
   vec.shrink_to_fit();
   // cuckoo_table.~CuckooTable();
@@ -357,7 +400,8 @@ void psi_ca_receiver(std::vector<block> &set, ENCRYPTO::PsiAnalyticsContext &con
     ot[1 - ans[i]].emplace_back(add_with_carry(ot_r[i], block_0));
   }
   std::cout << sum << std::endl;
-  for (auto i = 0; i < 128 - nbins % 128; i++)
+  uint64_t ot_pad = (128 - nbins % 128) % 128;
+  for (uint64_t i = 0; i < ot_pad; i++)
   {
     ot[0].emplace_back(Block::zero_block);
     ot[1].emplace_back(Block::zero_block);
@@ -365,7 +409,7 @@ void psi_ca_receiver(std::vector<block> &set, ENCRYPTO::PsiAnalyticsContext &con
   auto pp_ot = IKNPOTE::Setup(BASE_LEN);
   // std::cout << nbins + (128 - nbins % 128) << " " << ot[0].size() << " " << ot[1].size()
   //           << std::endl;
-  IKNPOTE::Send(io2, pp_ot, ot[0], ot[1], nbins + (128 - nbins % 128));
+  IKNPOTE::Send(io2, pp_ot, ot[0], ot[1], nbins + ot_pad);
   block psi_ca_ans = Block::zero_block;
   for (auto i = 0; i < nbins; i++)
   {
@@ -445,9 +489,7 @@ void psi_ca_sender(std::vector<block> &set, uint64_t real_num1, ENCRYPTO::PsiAna
   // test_baxos_block();
   VOLEOPRF::PP pp;
   uint64_t real_num2 = MAX_DEGREE * NUM_VERTEX;
-  uint64_t num1 = std::ceil(std::log2(MAX_DEGREE*MAX_DEGREE)); // std::cout<<"Please enter:"<<std::endl;std::cin>>num1>>num2;
   auto start_table = std::chrono::steady_clock::now();
-  pp = VOLEOPRF::Setup(num1 + 1);
   // std::vector<block> tmp;
   // for (auto i = 0; i < 33; i++) {
   //   tmp.emplace_back(Block::MakeBlock(0, i));
@@ -465,6 +507,7 @@ void psi_ca_sender(std::vector<block> &set, uint64_t real_num1, ENCRYPTO::PsiAna
   // set.shrink_to_fit();
   uint64_t nbins;
   io.ReceiveBytes(&nbins, 8);
+  pp = VOLEOPRF::Setup(ceil_log2_u64(nbins));
   PRG::Seed seed = PRG::SetSeed(fixed_seed, 0); // initialize PRG
   std::vector<uint64_t> vec;
   for (auto i = 0; i < real_num2; i++)
@@ -599,7 +642,8 @@ void psi_ca_sender(std::vector<block> &set, uint64_t real_num1, ENCRYPTO::PsiAna
   // // ALSZOTE::Send(io, pp_ot, ot1, ot2, 384);
 
   auto pp_ot = IKNPOTE::Setup(BASE_LEN);
-  for (auto i = 0; i < 128 - nbins % 128; i++)
+  uint64_t ot_pad = (128 - nbins % 128) % 128;
+  for (uint64_t i = 0; i < ot_pad; i++)
     ans.emplace_back(0);
   // std::cout << nbins + (128 - nbins % 128) << " " << ans.size() << std::endl;
   std::vector<block> vec_result_real = IKNPOTE::Receive(io2, pp_ot, ans, ans.size());

@@ -109,7 +109,7 @@ std::vector<uint64_t> CuckooTable::AsRawVector() const {
 std::tuple<std::vector<uint64_t>,std::vector<__m128i>> CuckooTable::AsRawVectorNoID() const {
   std::vector<__m128i> raw_table;
   std::vector<uint64_t> active_idx;
-  std::cout<<" !!!!!!!!!!!!1"<<DUMMY_ELEMENT<<" "<<num_bins_<<std::endl;
+  std::cout<<" !!!!!!!!!!!!1 "<<DUMMY_ELEMENT<<" "<<num_bins_<<std::endl;
   raw_table.reserve(num_bins_);
   for (auto i = 0ull; i < num_bins_; ++i) {
     auto ele=hash_table_.at(i).GetElement();
@@ -119,9 +119,9 @@ std::tuple<std::vector<uint64_t>,std::vector<__m128i>> CuckooTable::AsRawVectorN
       active_idx.emplace_back(i);
     }// else raw_table.push_back(_mm_set_epi64x(DUMMY_ELEMENT,DUMMY_ELEMENT));
     else raw_table.push_back(_mm_set_epi64x(std::numeric_limits<uint64_t>::max(),i));
-    // trying to fix the problem of repeating keys for empty entries on small sample -- Martinmxq0316
+    // trying to fix the problem of repeating keys for empty entries on small sample -- Martinmxq316
   }
-  std::cout<<" !!!!!!!!!!!!1"<<raw_table.size()<<std::endl;
+  std::cout<<" !!!!!!!!!!!!1 "<<raw_table.size()<<std::endl;
   return std::make_tuple(active_idx,raw_table);
 }
 
