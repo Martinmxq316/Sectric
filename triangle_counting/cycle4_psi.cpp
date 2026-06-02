@@ -29,6 +29,7 @@
 #include <iostream>
 
 #include <boost/program_options.hpp>
+#include <filesystem>
 #include <limits>
 #include <stdexcept>
 #include <vector>
@@ -664,7 +665,11 @@ struct CommandLineResult
   uint64_t n_value;
   std::string name;
   std::string task;
+  std::string data_dir;
+  uint64_t degree_bound;
   bool dry_run;
+  bool step4;
+  bool step5;
   bool role_supplied;
 };
 CommandLineResult read_test_options(int argc, char *argv[])
@@ -674,6 +679,8 @@ CommandLineResult read_test_options(int argc, char *argv[])
   po::options_description allowed("Allowed options");
   std::string type;
   std::string task;
+  std::string data_dir;
+  uint64_t degree_bound = std::numeric_limits<uint64_t>::max();
   bool role_supplied = false;
   for (int i = 1; i < argc; ++i)
   {
@@ -694,7 +701,11 @@ CommandLineResult read_test_options(int argc, char *argv[])
     ("role,r", po::value<decltype(context.role)>(&context.role)->default_value(CLIENT), "Role of the node")
     ("name", po::value<std::string>()->default_value(""), "Value for neighbor (default: UINT64_MAX)")
     ("task", po::value<std::string>(&task)->default_value(""), "Task selector; use cycle4 with --dry-run for 4-cycle layout checks")
+    ("data-dir", po::value<std::string>(&data_dir)->default_value(""), "Directory containing neighbor_<node>.txt files")
+    ("degree-bound", po::value<uint64_t>(&degree_bound)->default_value(std::numeric_limits<uint64_t>::max()), "Degree bound D for padded 4-cycle query lists")
     ("dry-run", po::bool_switch()->default_value(false), "Build and print 4-cycle dry-run layout without running PSI")
+    ("step4", po::bool_switch()->default_value(false), "Run the Step 4 per-candidate dry-run loop")
+    ("step5", po::bool_switch()->default_value(false), "Run the Step 5 padded query-list dry-run")
     ("neles,n", po::value<decltype(context.neles)>(&context.neles)->default_value(4096u), "Number of my elements")
     ("bit-length,b", po::value<decltype(context.bitlen)>(&context.bitlen)->default_value(62u), "Bit-length of the elements")
     ("epsilon,e", po::value<decltype(context.epsilon)>(&context.epsilon)->default_value(1.27f), "Epsilon, a table size multiplier")
@@ -771,7 +782,7 @@ CommandLineResult read_test_options(int argc, char *argv[])
   {
     NUM_VERTEX = vm["num_v"].as<uint64_t>();
   }
-  return {context, x_value, n_value, name, task, vm["dry-run"].as<bool>(), role_supplied};
+  return {context, x_value, n_value, name, task, data_dir, degree_bound, vm["dry-run"].as<bool>(), vm["step4"].as<bool>(), vm["step5"].as<bool>(), role_supplied};
 }
 
 struct Cycle4DryRunLayout
@@ -782,6 +793,211 @@ struct Cycle4DryRunLayout
   std::vector<uint64_t> candidate_ids;
   uint64_t expected_query_count;
 };
+
+struct Cycle4CandidateContext
+{
+  uint64_t q;
+  uint64_t u;
+  uint64_t q_degree;
+  uint64_t num_vertices;
+};
+
+std::string cycle4_data_dir(const CommandLineResult &options)
+{
+  if (!options.data_dir.empty())
+  {
+    std::filesystem::path requested(options.data_dir);
+    if (std::filesystem::exists(requested))
+    {
+      return options.data_dir;
+    }
+    std::filesystem::path repo_local =
+        std::filesystem::path("data") / requested.filename();
+    if (std::filesystem::exists(repo_local))
+    {
+      return repo_local.string();
+    }
+    return options.data_dir;
+  }
+  return file_name;
+}
+
+std::string cycle4_display_data_dir(const CommandLineResult &options)
+{
+  if (!options.data_dir.empty())
+  {
+    return options.data_dir;
+  }
+  return file_name;
+}
+
+uint64_t infer_num_vertices_from_data_dir(const std::string &data_dir)
+{
+  if (NUM_VERTEX != std::numeric_limits<uint64_t>::max() && NUM_VERTEX != 0)
+  {
+    return NUM_VERTEX;
+  }
+
+  std::filesystem::path path(data_dir);
+  std::string name = path.filename().string();
+  if (name.rfind("neighbor_files_", 0) == 0)
+  {
+    name = name.substr(std::string("neighbor_files_").size());
+  }
+
+  std::vector<std::string> parts;
+  size_t start = 0;
+  while (start <= name.size())
+  {
+    size_t end = name.find('_', start);
+    if (end == std::string::npos)
+    {
+      parts.emplace_back(name.substr(start));
+      break;
+    }
+    parts.emplace_back(name.substr(start, end - start));
+    start = end + 1;
+  }
+
+  if (parts.size() >= 3)
+  {
+    try
+    {
+      return std::stoull(parts[parts.size() - 3]);
+    }
+    catch (const std::exception &)
+    {
+    }
+  }
+
+  uint64_t count = 0;
+  for (const auto &entry : std::filesystem::directory_iterator(path))
+  {
+    const std::string filename = entry.path().filename().string();
+    if (filename.rfind("neighbor_", 0) == 0 && entry.path().extension() == ".txt")
+    {
+      ++count;
+    }
+  }
+  if (count == 0)
+  {
+    throw std::invalid_argument("could not infer num_vertices; pass --num_v");
+  }
+  return count;
+}
+
+void validate_cycle4_candidates(const Cycle4DryRunLayout &layout)
+{
+  if (layout.candidate_ids.size() != layout.num_vertices - 1)
+  {
+    throw std::logic_error("candidate_ids.size() does not equal num_vertices - 1");
+  }
+  for (uint64_t u : layout.candidate_ids)
+  {
+    if (u == layout.q)
+    {
+      throw std::logic_error("candidate_ids contains q");
+    }
+  }
+}
+
+void process_cycle4_candidate_placeholder(
+    const Cycle4CandidateContext &ctx)
+{
+  std::cout << "[4cycle][candidate] u=" << ctx.u
+            << " q=" << ctx.q
+            << " q_degree=" << ctx.q_degree << std::endl;
+}
+
+uint64_t block_low_u64(const block &value)
+{
+  return ((const uint64_t *)(&value))[0];
+}
+
+uint64_t infer_degree_bound_from_data_dir(const std::string &data_dir)
+{
+  if (MAX_DEGREE != std::numeric_limits<uint64_t>::max() && MAX_DEGREE != 0)
+  {
+    return MAX_DEGREE;
+  }
+
+  std::filesystem::path path(data_dir);
+  std::string name = path.filename().string();
+  if (name.rfind("neighbor_files_", 0) == 0)
+  {
+    name = name.substr(std::string("neighbor_files_").size());
+  }
+
+  const size_t last_underscore = name.rfind('_');
+  if (last_underscore != std::string::npos && last_underscore + 1 < name.size())
+  {
+    try
+    {
+      return std::stoull(name.substr(last_underscore + 1));
+    }
+    catch (const std::exception &)
+    {
+    }
+  }
+
+  throw std::invalid_argument("degree bound is required; pass --degree-bound or --num_d");
+}
+
+uint64_t cycle4_degree_bound(const CommandLineResult &options, const std::string &data_dir)
+{
+  if (options.degree_bound != std::numeric_limits<uint64_t>::max())
+  {
+    return options.degree_bound;
+  }
+  return infer_degree_bound_from_data_dir(data_dir);
+}
+
+std::vector<block> build_padded_q_queries(
+    const std::vector<block> &q_neighbors,
+    uint64_t degree_bound,
+    uint64_t num_vertices)
+{
+  if (degree_bound == std::numeric_limits<uint64_t>::max())
+  {
+    throw std::invalid_argument("degree_bound must be set");
+  }
+  if (q_neighbors.size() > degree_bound)
+  {
+    throw std::invalid_argument("degree(q) exceeds degree_bound; refusing to truncate");
+  }
+
+  std::vector<block> padded_q_queries = q_neighbors;
+  uint64_t dummy_id = num_vertices;
+  while (padded_q_queries.size() < degree_bound)
+  {
+    padded_q_queries.emplace_back(Block::MakeBlock(0, dummy_id));
+    ++dummy_id;
+  }
+  return padded_q_queries;
+}
+
+void validate_padded_q_queries(
+    const std::vector<block> &padded_q_queries,
+    uint64_t real_degree,
+    uint64_t degree_bound,
+    uint64_t num_vertices)
+{
+  if (padded_q_queries.size() != degree_bound)
+  {
+    throw std::logic_error("padded_q_queries.size() does not equal degree_bound");
+  }
+  if (real_degree > degree_bound)
+  {
+    throw std::logic_error("real_degree(q) exceeds degree_bound");
+  }
+  for (size_t i = real_degree; i < padded_q_queries.size(); ++i)
+  {
+    if (block_low_u64(padded_q_queries[i]) < num_vertices)
+    {
+      throw std::logic_error("dummy query collides with a valid vertex id");
+    }
+  }
+}
 
 Cycle4DryRunLayout build_cycle4_dry_run_layout(
     uint64_t q,
@@ -839,31 +1055,82 @@ int run_cycle4_dry_run(const CommandLineResult &options)
 {
   try
   {
-    if (NUM_VERTEX == std::numeric_limits<uint64_t>::max() || NUM_VERTEX == 0)
-    {
-      throw std::invalid_argument("--num_v must be set to a positive vertex count");
-    }
     if (options.x_value == std::numeric_limits<uint64_t>::max())
     {
       throw std::invalid_argument("--idx must be set to the queried node id q");
     }
-    if (options.x_value >= NUM_VERTEX)
+    const std::string data_dir = cycle4_data_dir(options);
+    const uint64_t num_vertices = infer_num_vertices_from_data_dir(data_dir);
+    if (options.x_value >= num_vertices)
     {
       throw std::invalid_argument("q must satisfy 0 <= q < num_vertices");
     }
 
     std::vector<block> q_neighbors =
-        read_to_block(file_name + "neighbor_" +
+        read_to_block(data_dir + "/neighbor_" +
                       std::to_string(options.x_value) + ".txt");
     Cycle4DryRunLayout layout =
-        build_cycle4_dry_run_layout(options.x_value, NUM_VERTEX, q_neighbors);
+        build_cycle4_dry_run_layout(options.x_value, num_vertices, q_neighbors);
+    validate_cycle4_candidates(layout);
 
-    std::cout << "[4cycle][dry-run]" << std::endl;
-    std::cout << "q = " << layout.q << std::endl;
-    std::cout << "num_vertices = " << layout.num_vertices << std::endl;
-    std::cout << "degree(q) = " << layout.q_degree << std::endl;
-    std::cout << "candidate_count = " << layout.candidate_ids.size() << std::endl;
-    std::cout << "expected_query_count = " << layout.expected_query_count << std::endl;
+    if (options.step5)
+    {
+      const uint64_t degree_bound = cycle4_degree_bound(options, data_dir);
+      std::vector<block> padded_q_queries =
+          build_padded_q_queries(q_neighbors, degree_bound, num_vertices);
+      validate_padded_q_queries(
+          padded_q_queries, layout.q_degree, degree_bound, num_vertices);
+
+      const uint64_t candidate_count = layout.candidate_ids.size();
+      if (degree_bound != 0 &&
+          candidate_count > std::numeric_limits<uint64_t>::max() / degree_bound)
+      {
+        throw std::overflow_error("expected_total_queries would overflow uint64_t");
+      }
+      const uint64_t expected_total_queries = candidate_count * degree_bound;
+      if (expected_total_queries != candidate_count * degree_bound)
+      {
+        throw std::logic_error("expected_total_queries validation failed");
+      }
+
+      std::cout << "[4cycle][step5]" << std::endl;
+      std::cout << "data_dir = " << cycle4_display_data_dir(options) << std::endl;
+      std::cout << "q = " << layout.q << std::endl;
+      std::cout << "num_vertices = " << layout.num_vertices << std::endl;
+      std::cout << "degree_bound = " << degree_bound << std::endl;
+      std::cout << "real_degree(q) = " << layout.q_degree << std::endl;
+      std::cout << "padded_degree = " << padded_q_queries.size() << std::endl;
+      std::cout << "dummy_count = " << padded_q_queries.size() - layout.q_degree << std::endl;
+      std::cout << "candidate_count = " << candidate_count << std::endl;
+      std::cout << "expected_queries_per_candidate = " << degree_bound << std::endl;
+      std::cout << "expected_total_queries = " << expected_total_queries << std::endl;
+      std::cout << "[PASS] padded query list size equals degree_bound" << std::endl;
+    }
+    else
+    {
+      std::cout << (options.step4 ? "[4cycle][step4]" : "[4cycle][dry-run]") << std::endl;
+      if (options.step4)
+      {
+        std::cout << "data_dir = " << cycle4_display_data_dir(options) << std::endl;
+      }
+      std::cout << "q = " << layout.q << std::endl;
+      std::cout << "num_vertices = " << layout.num_vertices << std::endl;
+      std::cout << "degree(q) = " << layout.q_degree << std::endl;
+      std::cout << "candidate_count = " << layout.candidate_ids.size() << std::endl;
+      if (!options.step4)
+      {
+        std::cout << "expected_query_count = " << layout.expected_query_count << std::endl;
+      }
+      else
+      {
+        for (uint64_t u : layout.candidate_ids)
+        {
+          Cycle4CandidateContext ctx{layout.q, u, layout.q_degree, layout.num_vertices};
+          process_cycle4_candidate_placeholder(ctx);
+        }
+        std::cout << "[PASS] visited all candidates except q" << std::endl;
+      }
+    }
   }
   catch (const std::exception &e)
   {
@@ -928,11 +1195,16 @@ int main(int argc, char **argv)
   uint64_t n_value = options.n_value;
   auto context = options.context;
 
-  if (options.dry_run || options.task == "cycle4")
+  if (options.dry_run || options.task == "cycle4" || options.step4 || options.step5)
   {
     if (options.task != "cycle4" || !options.dry_run)
     {
       std::cerr << "[4cycle][error] use --task cycle4 together with --dry-run" << std::endl;
+      return EXIT_FAILURE;
+    }
+    if (options.step4 && options.step5)
+    {
+      std::cerr << "[4cycle][error] use only one of --step4 or --step5" << std::endl;
       return EXIT_FAILURE;
     }
     return run_cycle4_dry_run(options);

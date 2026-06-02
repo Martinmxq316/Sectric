@@ -97,3 +97,87 @@ This dry-run does not run PSI, does not contact other nodes, and does not
 implement the private 4-cycle protocol yet. It only loads q's neighbor list,
 constructs candidate metadata, validates the layout counts, and prints sanity
 information.
+
+## Step 4 Candidate Loop Skeleton
+
+Step 4 added a per-candidate streaming-loop skeleton behind the same dry-run
+entry:
+
+```bash
+./bin/gcf_4cycle \
+  --task cycle4 \
+  --dry-run \
+  --step4 \
+  --data-dir data/neighbor_files_test_6_6_2 \
+  --idx 0
+```
+
+If the same dataset is mounted at an absolute path, the equivalent command is:
+
+```bash
+./bin/gcf_4cycle \
+  --task cycle4 \
+  --dry-run \
+  --step4 \
+  --data-dir /data/neighbor_files_test_6_6_2 \
+  --idx 0
+```
+
+`--data-dir` points directly at a directory containing `neighbor_<node>.txt`
+files. If `--num_v` is omitted, the dry-run infers the vertex count from the
+existing directory naming convention, for example
+`neighbor_files_test_6_6_2` means 6 vertices. The toy sample uses 0-based node
+ids, so `q=0` produces candidates `1, 2, 3, 4, 5`.
+
+Step 4 validates that `q` is in range, that candidates do not contain `q`, and
+that the candidate count is exactly `num_vertices - 1`. The placeholder currently
+prints:
+
+```text
+[4cycle][candidate] u=<u> q=<q> q_degree=<degree>
+```
+
+Step 4 does not run PSI, OKVS decode, OPRF, equality, OT, or Beaver triples.
+
+## Step 5 Padded Q Query List
+
+Step 5 added construction and validation of Q's padded query list for future
+per-candidate 4-cycle checks.
+
+Run on the 6-vertex toy sample:
+
+```bash
+./bin/gcf_4cycle \
+  --task cycle4 \
+  --dry-run \
+  --step5 \
+  --data-dir /data/neighbor_files_test_6_1_4 \
+  --idx 0 \
+  --degree-bound 4
+```
+
+The same command also works with the repository-local path:
+
+```bash
+./bin/gcf_4cycle \
+  --task cycle4 \
+  --dry-run \
+  --step5 \
+  --data-dir data/neighbor_files_test_6_1_4 \
+  --idx 0 \
+  --degree-bound 4
+```
+
+`degree_bound` is provided by `--degree-bound`. If that flag is omitted, the
+dry-run falls back to the existing `--num_d` value, and finally to the last field
+of the existing dataset naming convention, such as `neighbor_files_test_6_1_4`.
+
+Padding rules:
+
+- Real neighbors from `N[q]` stay at the front of the list.
+- If `degree(q) < D`, deterministic dummy vertex ids starting at
+  `num_vertices` are appended.
+- Dummy ids are validated to be outside the valid vertex-id range.
+- If `degree(q) > D`, the command fails clearly instead of truncating.
+
+Step 5 does not run OKVS decode, PSI, OPRF, equality, OT, or Beaver triples.
