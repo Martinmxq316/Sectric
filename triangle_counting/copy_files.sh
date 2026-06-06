@@ -6,6 +6,7 @@ file_mapping=(
     ["circuit_psi.cpp"]="../extern/2PC-Circuit-PSI/src/circuit_psi.cpp"
     ["cycle4_psi.cpp"]="../extern/2PC-Circuit-PSI/src/cycle4_psi.cpp"
     ["triangle.h"]="../extern/2PC-Circuit-PSI/src/triangle.h"
+    ["cycle4.h"]="../extern/2PC-Circuit-PSI/src/cycle4.h"
     ["cuckoo_hashing.cpp"]="../extern/2PC-Circuit-PSI/aux_hash/cuckoo_hashing.cpp"
     ["cuckoo_hashing.h"]="../extern/2PC-Circuit-PSI/aux_hash/cuckoo_hashing.h"
     ["equality.h"]="../extern/2PC-Circuit-PSI/src/common/equality.h"

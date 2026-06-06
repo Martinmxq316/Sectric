@@ -79,7 +79,7 @@ std::vector<uint8_t> perform_block_equality(const std::vector<__m128i> &inputs,
   auto data = (uint64_t *)inputs.data();
   auto num_cmps = 2 * inputs.size();
 
-  sci::OTPack<sci::NetIO> *otpackArr[2];
+  sci::OTPack<sci::NetIO> *otpackArr[3];
   int l = (int)context.bitlen;
   int b = (int)context.radix;
 
