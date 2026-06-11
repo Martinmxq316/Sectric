@@ -629,7 +629,7 @@ block psi_ca_receiver(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO:
 
   // 计算时间间隔
   std::chrono::duration<double> elapsed_seconds = end - start;
-  std::cout << idxs.size() << "Elapsed time: " << elapsed_seconds.count() << "s\n";
+  // std::cout << idxs.size() << "Elapsed time: " << elapsed_seconds.count() << "s\n";
 
   std::vector<std::tuple<double, double, double>> times;
   times.emplace_back(io.get_time_statistics());
@@ -658,15 +658,24 @@ block psi_ca_receiver(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO:
   }
   // std::cout << "client send_time_sci=" << send_time_sci << "s" << std::endl;
   // std::cout << "client recv_time_sci=" << recv_time_sci << "s" << std::endl;
-  std::cout << "client send_time=" << send_time << "s" << std::endl;
-  std::cout << "client recv_time=" << recv_time << "s" << std::endl;
-  std::cout << "client recv_time_with_wait=" << recv_time_with_wait << "s" << std::endl;
-  std::cout << "client total_time=" << send_time + recv_time << "s" << std::endl;
-  std::cout << "client total_time_with_wait=" << send_time + recv_time_with_wait << "s" << std::endl;
+  // std::cout << "client send_time=" << send_time << "s" << std::endl;
+  // std::cout << "client recv_time=" << recv_time << "s" << std::endl;
+  // std::cout << "client recv_time_with_wait=" << recv_time_with_wait << "s" << std::endl;
+  // std::cout << "client total_time=" << send_time + recv_time << "s" << std::endl;
+  // std::cout << "client total_time_with_wait=" << send_time + recv_time_with_wait << "s" << std::endl;
 }
 #include "../../Kunlun/crypto/aes.hpp"
 void send_baxos(NetIO &io, std::vector<block> &key, std::vector<block> &value, uint64_t baxos_size, uint64_t num)
 {
+  if (key.size() != value.size())
+  {
+    throw std::runtime_error("send_baxos requires key.size() == value.size()");
+  }
+  if (key.size() > baxos_size)
+  {
+    throw std::runtime_error("send_baxos key count exceeds baxos capacity");
+  }
+
   // test_baxos_block();
   // auto tmp=get_baxos_block(key,value);
   // std::cout << "Reach send_baxos\n";
@@ -674,11 +683,34 @@ void send_baxos(NetIO &io, std::vector<block> &key, std::vector<block> &value, u
   // std::cout << baxos_size << " " << send_baxos_bin_size << std::endl;
   Baxos<gf_128> baxos(baxos_size, send_baxos_bin_size, 3);
   // std::cout << "Pass send_baxos\n";
-  std::cout << baxos.bin_num * baxos.total_size << std::endl;
+  // std::cout << baxos.bin_num * baxos.total_size << std::endl;
   std::vector<block> encode_result(baxos.bin_num * baxos.total_size);
   // std::cout << "begin solve" << key.size() << " " << value.size() << " " << encode_result.size() << std::endl;
-  auto seed = PRG::SetSeed();
-  baxos.solve(key, value, encode_result, &seed, 8);
+  constexpr int kMaxBaxosRetries = 20;
+  bool solved = false;
+  for (int attempt = 0; attempt < kMaxBaxosRetries && !solved; attempt++)
+  {
+    try
+    {
+      auto seed = PRG::SetSeed();
+      baxos.solve(key, value, encode_result, &seed, 8);
+      solved = true;
+    }
+    catch (const char *e)
+    {
+      std::cerr << "send_baxos Baxos solve failed: " << e
+                << ", retry=" << attempt + 1 << "/" << kMaxBaxosRetries << std::endl;
+    }
+    catch (const std::exception &e)
+    {
+      std::cerr << "send_baxos Baxos solve failed: " << e.what()
+                << ", retry=" << attempt + 1 << "/" << kMaxBaxosRetries << std::endl;
+    }
+  }
+  if (!solved)
+  {
+    throw std::runtime_error("send_baxos Baxos solve failed after retries");
+  }
   // std::cout << "end solve" << std::endl;
   io.SendInteger(baxos_size);
   io.SendBlocks(encode_result.data(), encode_result.size());
@@ -781,7 +813,7 @@ block psi_ca_sender(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO::P
   simple_table_1d.shrink_to_fit();
   oprf_result.clear();
   oprf_result.shrink_to_fit();
-  pp.~PP();
+  // pp.~PP();
   // Baxos<gf_128> baxos(baxos_size, 1 << 18, 3);
   // std::vector<block> encode_result(baxos.bin_num * baxos.total_size);
   // for(auto i=0;i<baxos_size;i++){
@@ -857,7 +889,7 @@ block psi_ca_sender(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO::P
 
   // 计算时间间隔
   std::chrono::duration<double> elapsed_seconds2 = end - start;
-  std::cout << "Elapsed time2: " << elapsed_seconds2.count() << "s\n";
+  // std::cout << "Elapsed time2: " << elapsed_seconds2.count() << "s\n";
 
   std::vector<std::tuple<double, double, double>> times;
   times.emplace_back(io.get_time_statistics());
@@ -886,11 +918,11 @@ block psi_ca_sender(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO::P
   }
   // std::cout << "server send_time_sci=" << send_time_sci << "s" << std::endl;
   // std::cout << "server recv_time_sci=" << recv_time_sci << "s" << std::endl;
-  std::cout << "server send_time=" << send_time << "s" << std::endl;
-  std::cout << "server recv_time=" << recv_time << "s" << std::endl;
-  std::cout << "server recv_time_with_wait=" << recv_time_with_wait << "s" << std::endl;
-  std::cout << "server total_time=" << send_time + recv_time << "s" << std::endl;
-  std::cout << "server total_time_with_wait=" << send_time + recv_time_with_wait << "s" << std::endl;
+  // std::cout << "server send_time=" << send_time << "s" << std::endl;
+  // std::cout << "server recv_time=" << recv_time << "s" << std::endl;
+  // std::cout << "server recv_time_with_wait=" << recv_time_with_wait << "s" << std::endl;
+  // std::cout << "server total_time=" << send_time + recv_time << "s" << std::endl;
+  // std::cout << "server total_time_with_wait=" << send_time + recv_time_with_wait << "s" << std::endl;
 }
 
 struct CommandLineResult
@@ -1051,7 +1083,7 @@ void send_test()
   std::vector<block> tmp(MAX_DEGREE);
   io.SendBlocks(tmp.data(), MAX_DEGREE);
   auto time = io.get_time_statistics();
-  std::cout << "send_time=" << std::get<0>(time) << "recv_time=" << std::get<1>(time) << "recv_time_wait=" << std::get<2>(time) << std::endl;
+  // std::cout << "send_time=" << std::get<0>(time) << "recv_time=" << std::get<1>(time) << "recv_time_wait=" << std::get<2>(time) << std::endl;
 }
 void recv_test()
 {
@@ -1059,11 +1091,11 @@ void recv_test()
   std::vector<block> tmp(MAX_DEGREE);
   io.ReceiveBlocks(tmp.data(), MAX_DEGREE);
   auto time = io.get_time_statistics();
-  std::cout << "send_time=" << std::get<0>(time) << "recv_time=" << std::get<1>(time) << "recv_time_wait=" << std::get<2>(time) << std::endl;
+  // std::cout << "send_time=" << std::get<0>(time) << "recv_time=" << std::get<1>(time) << "recv_time_wait=" << std::get<2>(time) << std::endl;
 }
 int main(int argc, char **argv)
 {
-  std::cout << "[4cycle] entry ready" << std::endl;
+  // std::cout << "[4cycle] entry ready" << std::endl;
   // test_baxos_block();
   // return 0;
   auto options = read_test_options(argc, argv);
@@ -1090,7 +1122,7 @@ int main(int argc, char **argv)
   auto set = test_request(context.role, x_value, n_value, neighbors);
   if (set.size() == 0)
     return 0;
-  std::cout << "over" << context.role << std::endl;
+  // std::cout << "over" << context.role << std::endl;
   // test_baxos_block();
   // return 0;
   CRYPTO_Initialize();

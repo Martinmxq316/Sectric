@@ -14,6 +14,7 @@ VOLE_SRC="$SOURCE_DIR/vole.hpp"
 ALSZOTE_SRC="$SOURCE_DIR/alsz_ote.hpp"
 IKNPOTE_SRC="$SOURCE_DIR/iknp_ote.hpp"
 NAORPINKASOT_SRC="$SOURCE_DIR/naor_pinkas_ot.hpp"
+SPLIT_KKOT_SRC="$SOURCE_DIR/split-kkot.h"
 
 # Define the target paths
 BLAKE2_DST="../extern/2PC-Circuit-PSI/extern/ABY/extern/ENCRYPTO_utils/extern/relic/src/md/blake2.h"
@@ -28,9 +29,10 @@ VOLE_DST="../extern/Kunlun/mpc/vole/vole.hpp"
 ALSZOTE_DST="../extern/Kunlun/mpc/ot/alsz_ote.hpp"
 IKNPOTE_DST="../extern/Kunlun/mpc/ot/iknp_ote.hpp"
 NAORPINKASOT_DST="../extern/Kunlun/mpc/ot/naor_pinkas_ot.hpp"
+SPLIT_KKOT_DST="../extern/2PC-Circuit-PSI/extern/EzPC/SCI/src/OT/split-kkot.h"
 
 # Check if source files exist
-if [[ ! -f "$BLAKE2_SRC" || ! -f "$HASH_TABLE_ENTRY_SRC" || ! -f "$LOCKS_SRC" || ! -f "$IO_SRC" || ! -f "$OPRF_SRC" || ! -f "$TIMER_SRC" || ! -f "$SCI_IO_SRC" || ! -f "$CHANNEL_SRC" || ! -f "$VOLE_SRC" || ! -f "$ALSZOTE_SRC" || ! -f "$IKNPOTE_SRC" || ! -f "$NAORPINKASOT_SRC" ]]; then
+if [[ ! -f "$BLAKE2_SRC" || ! -f "$HASH_TABLE_ENTRY_SRC" || ! -f "$LOCKS_SRC" || ! -f "$IO_SRC" || ! -f "$OPRF_SRC" || ! -f "$TIMER_SRC" || ! -f "$SCI_IO_SRC" || ! -f "$CHANNEL_SRC" || ! -f "$VOLE_SRC" || ! -f "$ALSZOTE_SRC" || ! -f "$IKNPOTE_SRC" || ! -f "$NAORPINKASOT_SRC" || ! -f "$SPLIT_KKOT_SRC" ]]; then
   echo "One or more source files are missing in the current directory."
   exit 1
 fi
@@ -72,5 +74,7 @@ cp "$IKNPOTE_SRC" "$IKNPOTE_DST"
 echo "Replacing naor_pinkas_ot.hpp..."
 cp "$NAORPINKASOT_SRC" "$NAORPINKASOT_DST"
 
-echo "Files have been replaced successfully."
+#echo "Replacing split-kkot.h..."
+#cp "$SPLIT_KKOT_SRC" "$SPLIT_KKOT_DST"
 
+echo "Files have been replaced successfully."

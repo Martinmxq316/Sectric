@@ -136,7 +136,7 @@ std::vector<uint8_t> perform_block_equality(const std::vector<__m128i> &inputs,
   }
 
   auto comm_size = inputs.size() / 8;
-  std::cout<<comm_size<<" "<<std::endl;
+  // std::cout<<comm_size<<" "<<std::endl;
   uint8_t *e = new uint8_t[inputs.size() / 8];
   uint8_t *f = new uint8_t[inputs.size() / 8];
   if (party == sci::ALICE) {
@@ -172,10 +172,12 @@ std::vector<uint8_t> perform_block_equality(const std::vector<__m128i> &inputs,
     delete[] shares[i];
   }
   delete[] shares;
-  // delete[] e;
+  delete[] e;
+  delete[] f;
   delete[] ei;
-  // delete[] e;
   delete[] fi;
+  // for (int i = 0; i < 3; i ++)
+  //   delete otpackArr[i];
   return ans_shares;
 }
 void run_eq(const std::vector<std::uint64_t> &inputs, PsiAnalyticsContext &context,

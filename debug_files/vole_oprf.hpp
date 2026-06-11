@@ -274,13 +274,7 @@ namespace VOLEOPRF
         // the seed used to generate the initial random data
         PRG::Seed seed = PRG::SetSeed();
 
-        // Fig 4.Step 2:Sample r
-        block seed_r = PRG::GenRandomBlocks(seed, 1)[0];
-        PRG::Seed okvs_seed = PRG::SetSeed(&seed_r, 0);
-        pp.okvs.seed = okvs_seed;
-
-        // std::cout << "VOLEOPRF::Client1 okvs.seed set" << std::endl;
-        // Fig 4.Step 2:the receiver solves the systems
+        block seed_r = _mm_setzero_si128();
         auto size = pp.okvs_output_size;
         // std::cout << "VOLEOPRF::Client1 size=" << size << std::endl;
         block a0 = _mm_set_epi64x(0ll, 0ll);
@@ -289,7 +283,34 @@ namespace VOLEOPRF
         std::vector<block> P(size);
         // std::cout << "VOLEOPRF::Client1 before okvs.solve P.size=" << P.size()
         //           << " vec_zero.size=" << vec_zero.size() << std::endl;
-        pp.okvs.solve(vec_X, vec_zero, P, nullptr, pp.thread_num);
+        constexpr int kMaxOkvsRetries = 20;
+        bool solved = false;
+        for (int attempt = 0; attempt < kMaxOkvsRetries && !solved; attempt++)
+        {
+            try
+            {
+                // Fig 4.Step 2: Sample r. Retry must refresh r because it seeds OKVS.
+                seed_r = PRG::GenRandomBlocks(seed, 1)[0];
+                PRG::Seed okvs_seed = PRG::SetSeed(&seed_r, 0);
+                pp.okvs.seed = okvs_seed;
+                pp.okvs.solve(vec_X, vec_zero, P, nullptr, pp.thread_num);
+                solved = true;
+            }
+            catch (const char *e)
+            {
+                std::cerr << "VOLEOPRF::Client1 OKVS solve failed: " << e
+                          << ", retry=" << attempt + 1 << "/" << kMaxOkvsRetries << std::endl;
+            }
+            catch (const std::exception &e)
+            {
+                std::cerr << "VOLEOPRF::Client1 OKVS solve failed: " << e.what()
+                          << ", retry=" << attempt + 1 << "/" << kMaxOkvsRetries << std::endl;
+            }
+        }
+        if (!solved)
+        {
+            throw std::runtime_error("VOLEOPRF::Client1 OKVS solve failed after retries");
+        }
         // std::cout << "VOLEOPRF::Client1 after okvs.solve P.size=" << P.size() << std::endl;
 
         // Fig 4.Step 3:VOLE

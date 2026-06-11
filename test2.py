@@ -30,55 +30,40 @@ def main():
 
     print("The count of the neighbors of the node is: ", len(neighbors))
 
-    processes = []
-
     command = ["./bin/gcf_4cycle", "--idx", str(x), "--role", str(1),"--name",file_name,"--num_d",MAX_DEGREE,"--num_v",NUM_VERTEX]
-    process = subprocess.Popen(command)
-    processes.append(process)
+    querier_process = subprocess.Popen(command)
     print(file_name)
 
-    '''
-    batch_size = 50
+    command = ["./bin/gcf_4cycle", "--idx", str(x), "--role", str(0),"--name",file_name,"--num_d",MAX_DEGREE,"--num_v",NUM_VERTEX]
+    server_process = subprocess.Popen(command)
+
+    batch_size = 32
+    vertices = [i for i in range(0, int(NUM_VERTEX)) if i != x]
+    remaining_vertices = vertices
     with ThreadPoolExecutor(max_workers=batch_size) as executor:
-        future_to_command = {executor.submit(subprocess.Popen, ["./bin/gcf_4cycle", "--neighbor", str(neighbor), "--role", str(2),"--name",file_name,"--num_d",MAX_DEGREE,"--num_v",NUM_VERTEX]): neighbor for neighbor in neighbors[:batch_size]}
-
-        for future in as_completed(future_to_command):
-            try:
-                process = future.result()
-                process.wait()
-            except Exception as exc:
-                print(f'process error: {exc}')
-
-        remaining_neighbors = neighbors[batch_size:]
-        while remaining_neighbors:
-            future_to_command = {executor.submit(subprocess.Popen, ["./bin/gcf_4cycle", "--neighbor", str(neighbor), "--role", str(2),"--name",file_name,"--num_d",MAX_DEGREE,"--num_v",NUM_VERTEX]): neighbor for neighbor in remaining_neighbors[:batch_size]}
+        while remaining_vertices:
+            current_batch = remaining_vertices[:batch_size]
+            future_to_command = {executor.submit(subprocess.Popen, ["./bin/gcf_4cycle", "--neighbor", str(vertex), "--role", str(2),"--name",file_name,"--num_d",MAX_DEGREE,"--num_v",NUM_VERTEX]): vertex for vertex in current_batch}
 
             for future in as_completed(future_to_command):
+                vertex = future_to_command[future]
                 try:
                     process = future.result()
-                    process.wait()
+                    return_code = process.wait()
+                    if return_code != 0:
+                        print(f'process error: vertex {vertex} exited with {return_code}')
                 except Exception as exc:
-                    print(f'process error: {exc}')
+                    print(f'process error for vertex {vertex}: {exc}')
 
-            remaining_neighbors = remaining_neighbors[batch_size:]
-    '''
+            remaining_vertices = remaining_vertices[batch_size:]
 
-    for i in range(0, int(NUM_VERTEX)):
-        if i != x:
-            command = ["./bin/gcf_4cycle", "--neighbor", str(i), "--role", str(2),"--name",file_name,"--num_d",MAX_DEGREE,"--num_v",NUM_VERTEX]
-            process = subprocess.Popen(command)
-            processes.append(process)
+    querier_return_code = querier_process.wait()
+    if querier_return_code != 0:
+        print(f'process error: querier exited with {querier_return_code}')
 
-
-    command = ["./bin/gcf_4cycle", "--idx", str(x), "--role", str(0),"--name",file_name,"--num_d",MAX_DEGREE,"--num_v",NUM_VERTEX]
-    process = subprocess.Popen(command)
-    processes.append(process)
-
-
-    for process in processes[:-1]:
-        process.wait()
-
-    processes[-1].wait()
+    server_return_code = server_process.wait()
+    if server_return_code != 0:
+        print(f'process error: server exited with {server_return_code}')
 
 if __name__ == "__main__":
     main()

@@ -10,7 +10,7 @@ extern string file_name;
 // extern string table_name = "simple_table_gplus_50000_300.txt";
 void saveVectorOfVectorsToFile(const std::vector<std::vector<__m128i>> &data, const std::string &filename)
 {
-  std::cout << data.size() << data[0].size() << "!!!!!!!" << std::endl;
+  // std::cout << data.size() << data[0].size() << "!!!!!!!" << std::endl;
   std::ofstream outfile(filename, std::ios::binary);
   if (!outfile.is_open())
   {
@@ -30,7 +30,7 @@ void saveVectorOfVectorsToFile(const std::vector<std::vector<__m128i>> &data, co
     outfile.write(reinterpret_cast<const char *>(&inner_size), sizeof(inner_size));
     outfile.write(reinterpret_cast<const char *>(inner_vec.data()), inner_size * sizeof(__m128i));
   }
-  std::cout << sum << std::endl;
+  // std::cout << sum << std::endl;
   outfile.close();
 }
 
@@ -210,7 +210,7 @@ std::map<uint64_t, std::vector<__m128i>> startServer(uint64_t recvNum, uint64_t 
 
     // 计算时间间隔
     std::chrono::duration<double> elapsed_seconds = end - start;
-    std::cout << "----" << elapsed_seconds.count() << "s----Received " << receivedData.size() << " __m128i elements from client " << client_id << " " << client_data_map.size() << std::endl;
+    // std::cout << "----" << elapsed_seconds.count() << "s----Received " << receivedData.size() << " __m128i elements from client " << client_id << " " << client_data_map.size() << std::endl;
     if (elapsed_seconds.count() > MAX)
       MAX = elapsed_seconds.count();
     // for (const auto& element : receivedData) {
@@ -222,7 +222,7 @@ std::map<uint64_t, std::vector<__m128i>> startServer(uint64_t recvNum, uint64_t 
     if (client_data_map.size() >= recvNum)
       break;
   }
-  std::cout << "=======================" << " receive max time=" << MAX << "s ======================" << std::endl;
+  // std::cout << "=======================" << " receive max time=" << MAX << "s ======================" << std::endl;
   close(server_fd);
   return client_data_map;
 }
@@ -360,7 +360,33 @@ void preprocess_vertex(uint64_t idx)
     auto baxos = Baxos<gf_128>(MAX_DEGREE, 1ull << 10, 3);
     std::vector<block> out(baxos.bin_num * baxos.total_size);
     uint8_t thread_num = 8;
-    baxos.solve(neighbors, v, out, &seed, thread_num);
+    constexpr int kMaxBaxosRetries = 20;
+    bool solved = false;
+    for (int attempt = 0; attempt < kMaxBaxosRetries && !solved; attempt++)
+    {
+        try
+        {
+            auto solve_seed = PRG::SetSeed();
+            baxos.solve(neighbors, v, out, &solve_seed, thread_num);
+            solved = true;
+        }
+        catch (const char *e)
+        {
+            std::cerr << "preprocess_vertex Baxos solve failed for vertex " << idx
+                      << ": " << e << ", retry=" << attempt + 1
+                      << "/" << kMaxBaxosRetries << std::endl;
+        }
+        catch (const std::exception &e)
+        {
+            std::cerr << "preprocess_vertex Baxos solve failed for vertex " << idx
+                      << ": " << e.what() << ", retry=" << attempt + 1
+                      << "/" << kMaxBaxosRetries << std::endl;
+        }
+    }
+    if (!solved)
+    {
+        throw std::runtime_error("preprocess_vertex Baxos solve failed after retries");
+    }
     // std::cout << "begin send" << 4000 + idx << std::endl;
 
     // std::cout << "OKVS of Vertex: " << idx << std::endl;
@@ -419,7 +445,7 @@ std::vector<std::vector<block>> neighbor_request(uint64_t idx, std::vector<block
 
     // return std::vector<block>();
 
-    std::cout << "begin decoding" << neighbors.size() << std::endl;
+    // std::cout << "begin decoding" << neighbors.size() << std::endl;
 
     for (auto i = 0; i < NUM_VERTEX; i++)
     {
