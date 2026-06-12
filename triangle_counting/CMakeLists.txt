@@ -1,15 +1,38 @@
 find_package(PkgConfig REQUIRED)
 pkg_search_module(GLIB REQUIRED glib-2.0)
 # Set OpenSSL paths based on system
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    set(OPENSSL_LIBRARIES /usr/local/openssl/lib64/libcrypto.a /usr/local/openssl/lib64/libssl.a)
-    set(OPENSSL_INCLUDE_DIR /usr/local/openssl/include)
-    set(OPENSSL_DIR /usr/local/openssl/lib64)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    set(OPENSSL_LIBRARIES /usr/local/lib/libcrypto.a /usr/local/lib/libssl.a)
-    set(OPENSSL_INCLUDE_DIR /usr/local/include)
-    set(OPENSSL_DIR /usr/local/lib)
+
+set(SECTRIC_OPENSSL_ROOT "" CACHE PATH "Path to modified OpenSSL installation")
+
+if(NOT SECTRIC_OPENSSL_ROOT)
+    if(DEFINED ENV{SECTRIC_OPENSSL_ROOT})
+        set(SECTRIC_OPENSSL_ROOT "$ENV{SECTRIC_OPENSSL_ROOT}")
+    else()
+        set(SECTRIC_OPENSSL_ROOT "$ENV{HOME}/local/openssl")
+    endif()
 endif()
+
+set(OPENSSL_INCLUDE_DIR "${SECTRIC_OPENSSL_ROOT}/include")
+
+if(EXISTS "${SECTRIC_OPENSSL_ROOT}/lib64/libcrypto.a")
+    set(OPENSSL_DIR "${SECTRIC_OPENSSL_ROOT}/lib64")
+elseif(EXISTS "${SECTRIC_OPENSSL_ROOT}/lib/libcrypto.a")
+    set(OPENSSL_DIR "${SECTRIC_OPENSSL_ROOT}/lib")
+else()
+    message(FATAL_ERROR
+        "Cannot find modified OpenSSL libraries under ${SECTRIC_OPENSSL_ROOT}. "
+        "Please set SECTRIC_OPENSSL_ROOT to your modified OpenSSL installation path."
+    )
+endif()
+
+set(OPENSSL_LIBRARIES
+    "${OPENSSL_DIR}/libcrypto.a"
+    "${OPENSSL_DIR}/libssl.a"
+)
+
+message(STATUS "Using modified OpenSSL root: ${SECTRIC_OPENSSL_ROOT}")
+message(STATUS "Using OpenSSL include dir: ${OPENSSL_INCLUDE_DIR}")
+message(STATUS "Using OpenSSL libraries: ${OPENSSL_LIBRARIES}")
 
 # Find OpenMP
 find_package(OpenMP REQUIRED)
