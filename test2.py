@@ -30,11 +30,11 @@ def main():
 
     print("The count of the neighbors of the node is: ", len(neighbors))
 
-    command = ["./bin/gcf_4cycle", "--idx", str(x), "--role", str(1),"--name",file_name,"--num_d",MAX_DEGREE,"--num_v",NUM_VERTEX]
+    command = ["./bin/gcf_4cycle", "--idx", str(x), "--role", str(1),"--name",file_name,"--num_d",MAX_DEGREE,"--num_v",NUM_VERTEX, "--profile"]
     querier_process = subprocess.Popen(command)
     print(file_name)
 
-    command = ["./bin/gcf_4cycle", "--idx", str(x), "--role", str(0),"--name",file_name,"--num_d",MAX_DEGREE,"--num_v",NUM_VERTEX]
+    command = ["./bin/gcf_4cycle", "--idx", str(x), "--role", str(0),"--name",file_name,"--num_d",MAX_DEGREE,"--num_v",NUM_VERTEX, "--profile"]
     server_process = subprocess.Popen(command)
 
     batch_size = 32

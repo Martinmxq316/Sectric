@@ -453,7 +453,32 @@ std::vector<std::vector<block>> neighbor_request(uint64_t idx, std::vector<block
         if (i == idx) continue;
         auto seed_ = PRG::SetSeed();
         neighbor_of_neighbor[i] = PRG::GenRandomBlocks(seed_, MAX_DEGREE);
-        baxos.decode(neighbors, neighbor_of_neighbor[i], neighbor_okvs[i], 8);
+        try
+        {
+            baxos.decode(neighbors, neighbor_of_neighbor[i], neighbor_okvs[i], 8);
+        }
+        catch (const char *e)
+        {
+            std::cerr << "neighbor_request Baxos decode failed for query vertex " << idx
+                      << ", source vertex " << i
+                      << ": " << e
+                      << ", neighbors=" << neighbors.size()
+                      << ", okvs_size=" << neighbor_okvs[i].size()
+                      << ", baxos_output_size=" << size
+                      << std::endl;
+            throw;
+        }
+        catch (const std::exception &e)
+        {
+            std::cerr << "neighbor_request Baxos decode failed for query vertex " << idx
+                      << ", source vertex " << i
+                      << ": " << e.what()
+                      << ", neighbors=" << neighbors.size()
+                      << ", okvs_size=" << neighbor_okvs[i].size()
+                      << ", baxos_output_size=" << size
+                      << std::endl;
+            throw;
+        }
         // std::cout << "Vertex " << i << std::endl;
         // Block::PrintBlocks(neighbor_of_neighbor[i]);
         // std::cout << "Decode OKVS of vertex " << i << std::endl;

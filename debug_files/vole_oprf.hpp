@@ -82,9 +82,31 @@ namespace VOLEOPRF
         std::cout << label
                   << " INPUT_NUM=" << pp.INPUT_NUM
                   << " okvs_bin_size=" << pp.okvs_bin_size
+                  << " okvs.sparse_size=" << pp.okvs.sparse_size
+                  << " okvs.dense_size=" << pp.okvs.dense_size
                   << " okvs.bin_num=" << pp.okvs.bin_num
                   << " okvs.total_size=" << pp.okvs.total_size
                   << " okvs_output_size=" << pp.okvs_output_size
+                  << std::endl;
+    }
+
+    inline void PrintDecodeFailureContext(const char *label, const PP &pp,
+                                          size_t input_size, size_t item_num,
+                                          size_t output_size, size_t key_size)
+    {
+        std::cerr << label
+                  << " input_size=" << input_size
+                  << " ITEM_NUM=" << item_num
+                  << " output_size=" << output_size
+                  << " key_size=" << key_size
+                  << " pp.INPUT_NUM=" << pp.INPUT_NUM
+                  << " pp.okvs_bin_size=" << pp.okvs_bin_size
+                  << " pp.okvs.sparse_size=" << pp.okvs.sparse_size
+                  << " pp.okvs.dense_size=" << pp.okvs.dense_size
+                  << " pp.okvs.bin_num=" << pp.okvs.bin_num
+                  << " pp.okvs.total_size=" << pp.okvs.total_size
+                  << " pp.okvs_output_size=" << pp.okvs_output_size
+                  << " pp.thread_num=" << pp.thread_num
                   << std::endl;
     }
 
@@ -167,7 +189,24 @@ namespace VOLEOPRF
 
         // Prepare for Fig 4.Step 6 Decode(C,x)
         std::vector<block> output(ITEM_NUM);
-        pp.okvs.decode(vec_X, output, C, pp.thread_num);
+        try
+        {
+            pp.okvs.decode(vec_X, output, C, pp.thread_num);
+        }
+        catch (const char *e)
+        {
+            std::cerr << "VOLEOPRF::Client OKVS decode failed: " << e << std::endl;
+            PrintDecodeFailureContext("VOLEOPRF::Client decode context", pp,
+                                      vec_X.size(), ITEM_NUM, output.size(), C.size());
+            throw;
+        }
+        catch (const std::exception &e)
+        {
+            std::cerr << "VOLEOPRF::Client OKVS decode failed: " << e.what() << std::endl;
+            PrintDecodeFailureContext("VOLEOPRF::Client decode context", pp,
+                                      vec_X.size(), ITEM_NUM, output.size(), C.size());
+            throw;
+        }
         auto end_time = std::chrono::steady_clock::now();
         
     	// PrintSplitLine('-');
@@ -250,7 +289,24 @@ namespace VOLEOPRF
         
         std::vector<block> output(ITEM_NUM);
         auto start_time = std::chrono::steady_clock::now();
-        pp.okvs.decode(vec_Y, output, block_oprf_key, 1);
+        try
+        {
+            pp.okvs.decode(vec_Y, output, block_oprf_key, 1);
+        }
+        catch (const char *e)
+        {
+            std::cerr << "VOLEOPRF::Evaluate OKVS decode failed: " << e << std::endl;
+            PrintDecodeFailureContext("VOLEOPRF::Evaluate decode context", pp,
+                                      vec_Y.size(), ITEM_NUM, output.size(), block_oprf_key.size());
+            throw;
+        }
+        catch (const std::exception &e)
+        {
+            std::cerr << "VOLEOPRF::Evaluate OKVS decode failed: " << e.what() << std::endl;
+            PrintDecodeFailureContext("VOLEOPRF::Evaluate decode context", pp,
+                                      vec_Y.size(), ITEM_NUM, output.size(), block_oprf_key.size());
+            throw;
+        }
 
         // transform block to byte
         //u8_oprf_key = Block_TO_Byte(oprf_key);
@@ -353,7 +409,24 @@ namespace VOLEOPRF
         std::vector<block> output(ITEM_NUM);
         // std::cout << "VOLEOPRF::Client1 before okvs.decode output.size=" << output.size()
         //           << " C.size=" << C.size() << std::endl;
-        pp.okvs.decode(vec_X, output, C, pp.thread_num);
+        try
+        {
+            pp.okvs.decode(vec_X, output, C, pp.thread_num);
+        }
+        catch (const char *e)
+        {
+            std::cerr << "VOLEOPRF::Client1 OKVS decode failed: " << e << std::endl;
+            PrintDecodeFailureContext("VOLEOPRF::Client1 decode context", pp,
+                                      vec_X.size(), ITEM_NUM, output.size(), C.size());
+            throw;
+        }
+        catch (const std::exception &e)
+        {
+            std::cerr << "VOLEOPRF::Client1 OKVS decode failed: " << e.what() << std::endl;
+            PrintDecodeFailureContext("VOLEOPRF::Client1 decode context", pp,
+                                      vec_X.size(), ITEM_NUM, output.size(), C.size());
+            throw;
+        }
         // std::cout << "VOLEOPRF::Client1 after okvs.decode output.size=" << output.size() << std::endl;
         
     // 	PrintSplitLine('-');
@@ -431,7 +504,24 @@ namespace VOLEOPRF
   
         std::vector<block> block_oprf_key = ByteToBlock(oprf_key);
         std::vector<block> output(ITEM_NUM);
-        pp.okvs.decode(vec_Y, output, block_oprf_key, pp.thread_num);
+        try
+        {
+            pp.okvs.decode(vec_Y, output, block_oprf_key, pp.thread_num);
+        }
+        catch (const char *e)
+        {
+            std::cerr << "VOLEOPRF::Evaluate1 OKVS decode failed: " << e << std::endl;
+            PrintDecodeFailureContext("VOLEOPRF::Evaluate1 decode context", pp,
+                                      vec_Y.size(), ITEM_NUM, output.size(), block_oprf_key.size());
+            throw;
+        }
+        catch (const std::exception &e)
+        {
+            std::cerr << "VOLEOPRF::Evaluate1 OKVS decode failed: " << e.what() << std::endl;
+            PrintDecodeFailureContext("VOLEOPRF::Evaluate1 decode context", pp,
+                                      vec_Y.size(), ITEM_NUM, output.size(), block_oprf_key.size());
+            throw;
+        }
 
         return output;
     }

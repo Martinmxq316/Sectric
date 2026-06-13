@@ -58,6 +58,7 @@ class NetIO : public IOChannel<NetIO> {
   string addr;
   int port;
   uint64_t counter = 0;
+  uint64_t recv_counter = 0;
   std::chrono::duration<double> send_time = std::chrono::duration<double>::zero();
   std::chrono::duration<double> recv_time = std::chrono::duration<double>::zero();
   std::chrono::duration<double> recv_time_with_wait = std::chrono::duration<double>::zero();
@@ -181,6 +182,7 @@ class NetIO : public IOChannel<NetIO> {
         fprintf(stderr, "error: net_recv_data %d\n", res);
       }
     }
+    recv_counter += len;
 
     auto end = std::chrono::high_resolution_clock::now();  // 结束时间
 	recv_time_with_wait+=end-start_with_wait;

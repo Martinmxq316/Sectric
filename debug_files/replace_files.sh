@@ -8,6 +8,7 @@ LOCKS_SRC="$SOURCE_DIR/locks.h"
 IO_SRC="$SOURCE_DIR/stream_channel.hpp"
 SCI_IO_SRC="$SOURCE_DIR/net_io_channel.h"
 OPRF_SRC="$SOURCE_DIR/vole_oprf.hpp"
+BAXOS_SRC="$SOURCE_DIR/baxos.hpp"
 TIMER_SRC="$SOURCE_DIR/Timer.h"
 CHANNEL_SRC="$SOURCE_DIR/channel.cpp"
 VOLE_SRC="$SOURCE_DIR/vole.hpp"
@@ -23,6 +24,7 @@ LOCKS_DST="../extern/2PC-Circuit-PSI/extern/EzPC/SCI/extern/SEAL/native/src/seal
 IO_DST="../extern/Kunlun/netio/stream_channel.hpp"
 SCI_IO_DST="../extern/2PC-Circuit-PSI/extern/EzPC/SCI/src/utils/net_io_channel.h"
 OPRF_DST="../extern/Kunlun/mpc/oprf/vole_oprf.hpp"
+BAXOS_DST="../extern/Kunlun/mpc/okvs/baxos.hpp"
 TIMER_DST="../extern/2PC-Circuit-PSI/extern/libOTe/cryptoTools/cryptoTools/Common/Timer.h"
 CHANNEL_DST="../extern/2PC-Circuit-PSI/extern/ABY/extern/ENCRYPTO_utils/src/ENCRYPTO_utils/channel.cpp"
 VOLE_DST="../extern/Kunlun/mpc/vole/vole.hpp"
@@ -32,7 +34,7 @@ NAORPINKASOT_DST="../extern/Kunlun/mpc/ot/naor_pinkas_ot.hpp"
 SPLIT_KKOT_DST="../extern/2PC-Circuit-PSI/extern/EzPC/SCI/src/OT/split-kkot.h"
 
 # Check if source files exist
-if [[ ! -f "$BLAKE2_SRC" || ! -f "$HASH_TABLE_ENTRY_SRC" || ! -f "$LOCKS_SRC" || ! -f "$IO_SRC" || ! -f "$OPRF_SRC" || ! -f "$TIMER_SRC" || ! -f "$SCI_IO_SRC" || ! -f "$CHANNEL_SRC" || ! -f "$VOLE_SRC" || ! -f "$ALSZOTE_SRC" || ! -f "$IKNPOTE_SRC" || ! -f "$NAORPINKASOT_SRC" || ! -f "$SPLIT_KKOT_SRC" ]]; then
+if [[ ! -f "$BLAKE2_SRC" || ! -f "$HASH_TABLE_ENTRY_SRC" || ! -f "$LOCKS_SRC" || ! -f "$IO_SRC" || ! -f "$OPRF_SRC" || ! -f "$BAXOS_SRC" || ! -f "$TIMER_SRC" || ! -f "$SCI_IO_SRC" || ! -f "$CHANNEL_SRC" || ! -f "$VOLE_SRC" || ! -f "$ALSZOTE_SRC" || ! -f "$IKNPOTE_SRC" || ! -f "$NAORPINKASOT_SRC" || ! -f "$SPLIT_KKOT_SRC" ]]; then
   echo "One or more source files are missing in the current directory."
   exit 1
 fi
@@ -55,6 +57,9 @@ cp "$SCI_IO_SRC" "$SCI_IO_DST"
 
 echo "Replacing vole_oprf.hpp..."
 cp "$OPRF_SRC" "$OPRF_DST"
+
+echo "Replacing baxos.hpp..."
+cp "$BAXOS_SRC" "$BAXOS_DST"
 
 echo "Replacing Timer.h..."
 cp "$TIMER_SRC" "$TIMER_DST"
