@@ -1714,7 +1714,7 @@ int main(int argc, char **argv)
 
   block total_2ans_share = Block::zero_block;
 
-  for (auto i = 0; i < 1500; i ++){ // NUM_VERTEX
+  for (auto i = 0; i < 1010; i ++){ // NUM_VERTEX
     try
     {
       block b_share = Block::zero_block;
