@@ -178,6 +178,7 @@ std::vector<uint8_t> perform_block_equality(const std::vector<__m128i> &inputs,
   delete[] fi;
   // for (int i = 0; i < 3; i ++)
   //   delete otpackArr[i];
+  delete otpackArr[2];
   return ans_shares;
 }
 void run_eq(const std::vector<std::uint64_t> &inputs, PsiAnalyticsContext &context,

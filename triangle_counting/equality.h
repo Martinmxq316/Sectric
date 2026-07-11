@@ -82,7 +82,7 @@ public:
     this->triples_std = new Triple(num_triples * num_cmps, true);
   }
 
-  ~Equality() { delete triple_gen; }
+  ~Equality() { delete triple_gen; delete triples_std; delete[] leaf_eq; }
 
   void computeLeafOTs(uint64_t *data)
   {

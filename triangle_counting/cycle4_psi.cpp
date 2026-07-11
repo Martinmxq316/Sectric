@@ -39,6 +39,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <thread>
 
 #include <ENCRYPTO_utils/crypto/crypto.h>
 #include <ENCRYPTO_utils/parse_options.h>
@@ -857,49 +858,10 @@ block psi_ca_receiver(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO:
   std::vector<block> result;
   {
     ProfileScope profile_scope(profiler, "vole_oprf", candidate_idx);
-    try
-    {
-      result = VOLEOPRF::Client1(io, pp, cuckoo_table_v, cuckoo_table_v.size());
-    }
-    catch (const char *e)
-    {
-      std::cerr << "[4cycle] " << role_name(context.role)
-                << " candidate=" << candidate_idx
-                << " failed in VOLEOPRF::Client1: " << e
-                << " nbins=" << nbins
-                << " cuckoo_size=" << cuckoo_table_v.size()
-                << " pp_input=" << pp.INPUT_NUM
-                << " pp_okvs_output=" << pp.okvs_output_size
-                << std::endl;
-      throw;
-    }
-    catch (const std::exception &e)
-    {
-      std::cerr << "[4cycle] " << role_name(context.role)
-                << " candidate=" << candidate_idx
-                << " failed in VOLEOPRF::Client1: " << e.what()
-                << " nbins=" << nbins
-                << " cuckoo_size=" << cuckoo_table_v.size()
-                << " pp_input=" << pp.INPUT_NUM
-                << " pp_okvs_output=" << pp.okvs_output_size
-                << std::endl;
-      throw;
-    }
-  }
-  // cuckoo_table.~CuckooTable();
-  // getchar();
-  // std::cout<<"begin cuckoo one"<<cuckoo_table_v.size()<<std::endl;
-  // auto tmp_b= cuckoo_table_v[0];
-  // Block::PrintBlock(tmp_b);
-  // std::cout<<((uint64_t*)(&tmp_b))[0]<<" "<<((uint64_t*)(&tmp_b))[1]<<std::endl;
-  // getchar();
 
-  // for (auto i = 0; i < cuckoo_table_v.size(); i++) {
-  //   std::cout << i << std::endl;
-  //   Block::PrintBlock(cuckoo_table_v[i]);
-  //   Block::PrintBlock(result[i]);
-  // }
-  // receive OKVS
+    result = VOLEOPRF::Client1(io, pp, cuckoo_table_v, cuckoo_table_v.size());
+ 
+  }
   
   std::vector<block> eq_blocks(nbins, Block::zero_block);
   {
@@ -921,34 +883,9 @@ block psi_ca_receiver(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO:
 
     // std::cout << "begin eq:" << std::endl;
     std::vector<block> decode_result(cuckoo_table_v.size());
-    try
-    {
-      baxos.decode(cuckoo_table_v, decode_result, okvs, 8);
-    }
-    catch (const char *e)
-    {
-      std::cerr << "[4cycle] " << role_name(context.role)
-                << " candidate=" << candidate_idx
-                << " failed in receiver Baxos decode: " << e
-                << " cuckoo_size=" << cuckoo_table_v.size()
-                << " okvs_size=" << okvs.size()
-                << " baxos_bin_num=" << baxos.bin_num
-                << " baxos_total_size=" << baxos.total_size
-                << std::endl;
-      throw;
-    }
-    catch (const std::exception &e)
-    {
-      std::cerr << "[4cycle] " << role_name(context.role)
-                << " candidate=" << candidate_idx
-                << " failed in receiver Baxos decode: " << e.what()
-                << " cuckoo_size=" << cuckoo_table_v.size()
-                << " okvs_size=" << okvs.size()
-                << " baxos_bin_num=" << baxos.bin_num
-                << " baxos_total_size=" << baxos.total_size
-                << std::endl;
-      throw;
-    }
+
+    baxos.decode(cuckoo_table_v, decode_result, okvs, 8);
+
     // Block::PrintBlock(decode_result[0]);
     // Block::PrintBlock(decode_result[1]);
     // // decode OKVS
@@ -973,58 +910,8 @@ block psi_ca_receiver(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO:
   std::vector<uint8_t> ans;
   {
     ProfileScope profile_scope(profiler, "block_equality", candidate_idx);
-    try
-    {
-      ans = perform_block_equality(eq_blocks, context, sock, ioArr, chl);
-    }
-    catch (const char *e)
-    {
-      std::cerr << "[4cycle] " << role_name(context.role)
-                << " candidate=" << candidate_idx
-                << " failed in receiver perform_block_equality: " << e
-                << " eq_blocks=" << eq_blocks.size()
-                << std::endl;
-      throw;
-    }
-    catch (const std::exception &e)
-    {
-      std::cerr << "[4cycle] " << role_name(context.role)
-                << " candidate=" << candidate_idx
-                << " failed in receiver perform_block_equality: " << e.what()
-                << " eq_blocks=" << eq_blocks.size()
-                << std::endl;
-      throw;
-    }
+    ans = perform_block_equality(eq_blocks, context, sock, ioArr, chl);
   }
-
-  // std::cout << "Querier[u=" << candidate_idx << "] shares:";
-  // for (auto i = 0; i < ans.size(); i ++)
-  //   std::cout << " " << static_cast<int>(ans[i]);
-  // std::cout << std::endl;
-
-  // for (auto i = 0; i < ans.size(); i++)
-  //   if (ans[i] == 1)
-  //     std::cout << "1 ";
-  //   else
-  //     std::cout << "0 ";
-  // std::cout << std::endl;
-  // for (auto i = 0, j = 0; i < nbins; i++)
-  // {
-  //   if (i == idxs[j])
-  //   {
-  //     std::cout << "1 ";
-  //     j++;
-  //   }
-  //   else
-  //   {
-  //     std::cout << "0 ";
-  //   }
-  // }
-
-  // auto pp_ot = ALSZOTE::Setup(BASE_LEN);
-  // std::vector<uint8_t> tmp(384,1);
-  // std::vector<block> vec_result_real = ALSZOTE::Receive(io, pp_ot, tmp, tmp.size());
-  // std::cout << std::endl;
 
   block psi_ca_ans = Block::zero_block;
   {
@@ -1122,9 +1009,7 @@ void send_baxos(NetIO &io, std::vector<block> &key, std::vector<block> &value, u
   io.SendInteger(baxos_size);
   io.SendBlocks(encode_result.data(), encode_result.size());
 }
-// 1 0 0 1 0 1 0 1 0 1 0 0 0 1 1 0 1 0 0 1 0 1 0 0 0 0 0 0 0 0 0 0 1 0 0 1 1 1 0 0 0 0 1 0 0 0 1 1
-// 0 0 1 0 0 0 1 0 0 0 0 1 1 0 0 1 0 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 0 1 1 1 0 0 1 1 0 0 1 1 1 0 0 0
-// 1 0 1 1 0 1 1 1 0 1 0 1 1 1 1 1 1 1 1 0 1 0 1 1 1 0 1 1 1 1 1 1 1 1 1 0 1 1 1 1 0 0 0 1 1 0 1 1
+
 block psi_ca_sender(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO::PsiAnalyticsContext &context, std::unique_ptr<CSocket> &sock,
                    sci::NetIO *ioArr[3], osuCrypto::Channel &chl, NetIO &io, NetIO &io2,
                    Profiler *profiler = nullptr)
@@ -1138,6 +1023,7 @@ block psi_ca_sender(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO::P
   std::vector<block> simple_table_1d;
   {
     ProfileScope profile_scope(profiler, "prepare_table", candidate_idx);
+
     io.ReceiveBytes(&nbins, 8);
     pp = VOLEOPRF::Setup(ceil_log2_u64(nbins));
     std::vector<uint64_t> vec;
@@ -1149,106 +1035,31 @@ block psi_ca_sender(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO::P
     }
 
     random_values = PRG::GenRandomBlocks(seed, nbins);
-    // for(auto i=0;i<nbins;i++){
-    //   random_values[i]=Block::zero_block;
-    // }
-    // // oprf
-
-    // // prepare OKVS
-    // std::vector<block> tmp = {Block::MakeBlock(0, 0xc)};
-    // Block::PrintBlocks(oprf_evaluate(tmp, oprf_key));
 
     ENCRYPTO::SimpleTable simple_table(static_cast<std::size_t>(nbins));
     simple_table.SetNumOfHashFunctions(context.nfuns);
     simple_table.Insert(vec);
     auto simple_table_size = simple_table.AsRaw2DVectorNoID();
     simple_table_vec = std::get<0>(simple_table_size);
-
-    // std::cout << "Simple Table Offline time: " << (elapsed_seconds).count() << "s\n";
-    // saveVectorOfVectorsToFile(simple_table_vec, table_name);
-    // std::cout<<simple_table_vec[0].size()<<std::endl;
-    // auto simple_table_vec = loadVectorOfVectorsFromFile(table_name);
-    // auto max_size = std::get<1>(simple_table_size);
     simple_table_1d.reserve(MAX_DEGREE);
     for (auto &row : simple_table_vec)
     {
       simple_table_1d.insert(simple_table_1d.end(), row.begin(), row.end());
     }
   }
-  // std::cout << "1d size" << simple_table_1d.size() << std::endl;
 
   std::vector<uint8_t> oprf_key;
   {
     ProfileScope profile_scope(profiler, "vole_oprf", candidate_idx);
-    try
-    {
-      oprf_key = VOLEOPRF::Server1(io, pp);
-    }
-    catch (const char *e)
-    {
-      std::cerr << "[4cycle] " << role_name(context.role)
-                << " candidate=" << candidate_idx
-                << " failed in VOLEOPRF::Server1: " << e
-                << " nbins=" << nbins
-                << " simple_table_1d=" << simple_table_1d.size()
-                << " pp_input=" << pp.INPUT_NUM
-                << " pp_okvs_output=" << pp.okvs_output_size
-                << std::endl;
-      throw;
-    }
-    catch (const std::exception &e)
-    {
-      std::cerr << "[4cycle] " << role_name(context.role)
-                << " candidate=" << candidate_idx
-                << " failed in VOLEOPRF::Server1: " << e.what()
-                << " nbins=" << nbins
-                << " simple_table_1d=" << simple_table_1d.size()
-                << " pp_input=" << pp.INPUT_NUM
-                << " pp_okvs_output=" << pp.okvs_output_size
-                << std::endl;
-      throw;
-    }
+
+    oprf_key = VOLEOPRF::Server1(io, pp);
   }
-  // simple_table.MapElements();
-  // simple_table.Print();
-  // auto simple_table_size = simple_table.AsRaw2DVectorNoID();
-  // auto simple_table_vec = std::get<0>(simple_table_size);
-  // auto max_size = std::get<1>(simple_table_size);
-  // auto simple_table_1d = simple_table.AsRawVectorNoID();
-  // std::vector<block> key_okvs;
-  // key_okvs.reserve(context.nfuns * vec.size());
-  // std::vector<block> val_okvs_2(context.nfuns * vec.size());
+
   std::vector<block> oprf_result;
   {
     ProfileScope profile_scope(profiler, "oprf_evaluate", candidate_idx);
-    try
-    {
-      oprf_result = VOLEOPRF::Evaluate1(pp, oprf_key, simple_table_1d, simple_table_1d.size());
-    }
-    catch (const char *e)
-    {
-      std::cerr << "[4cycle] " << role_name(context.role)
-                << " candidate=" << candidate_idx
-                << " failed in VOLEOPRF::Evaluate1: " << e
-                << " oprf_key_bytes=" << oprf_key.size()
-                << " simple_table_1d=" << simple_table_1d.size()
-                << " pp_input=" << pp.INPUT_NUM
-                << " pp_okvs_output=" << pp.okvs_output_size
-                << std::endl;
-      throw;
-    }
-    catch (const std::exception &e)
-    {
-      std::cerr << "[4cycle] " << role_name(context.role)
-                << " candidate=" << candidate_idx
-                << " failed in VOLEOPRF::Evaluate1: " << e.what()
-                << " oprf_key_bytes=" << oprf_key.size()
-                << " simple_table_1d=" << simple_table_1d.size()
-                << " pp_input=" << pp.INPUT_NUM
-                << " pp_okvs_output=" << pp.okvs_output_size
-                << std::endl;
-      throw;
-    }
+
+    oprf_result = VOLEOPRF::Evaluate1(pp, oprf_key, simple_table_1d, simple_table_1d.size());
     auto tmp = 0;
     // std::cout<<"end evaluate"<<std::endl;s
     // getchar();
@@ -1280,111 +1091,20 @@ block psi_ca_sender(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO::P
   // std::vector<block> v=PRG::GenRandomBlocks(seed,MAX_DEGREE*NUM_VERTEX*3);
   {
     ProfileScope profile_scope(profiler, "okvs", candidate_idx);
-    try
-    {
-      send_baxos(io2, simple_table_1d, oprf_result, MAX_DEGREE * 3, ceil_log2_u64(MAX_DEGREE));
-    }
-    catch (const char *e)
-    {
-      std::cerr << "[4cycle] " << role_name(context.role)
-                << " candidate=" << candidate_idx
-                << " failed in send_baxos: " << e
-                << " key_size=" << simple_table_1d.size()
-                << " value_size=" << oprf_result.size()
-                << std::endl;
-      throw;
-    }
-    catch (const std::exception &e)
-    {
-      std::cerr << "[4cycle] " << role_name(context.role)
-                << " candidate=" << candidate_idx
-                << " failed in send_baxos: " << e.what()
-                << " key_size=" << simple_table_1d.size()
-                << " value_size=" << oprf_result.size()
-                << std::endl;
-      throw;
-    }
+
+    send_baxos(io2, simple_table_1d, oprf_result, MAX_DEGREE * 3, ceil_log2_u64(MAX_DEGREE));
+    
   }
   simple_table_1d.clear();
   simple_table_1d.shrink_to_fit();
   oprf_result.clear();
   oprf_result.shrink_to_fit();
-  // pp.~PP();
-  // Baxos<gf_128> baxos(baxos_size, 1 << 18, 3);
-  // std::vector<block> encode_result(baxos.bin_num * baxos.total_size);
-  // for(auto i=0;i<baxos_size;i++){
-  //   std::cout<<i<<std::endl;
-  //   Block::PrintBlock(key_okvs[i]);
-  //   Block::PrintBlock(val_okvs[i]);
-  // AES::FastECBEnc(pp.okvs.seed.aes_key, key_okvs.data(), key_okvs.size());
-  // for (auto i = 0; i < key_okvs.size(); i++) {
-  //   if (Block::Compare(key_okvs[i], Block::MakeBlock(0xbeac4722c5abd02f,0x386bce3b96428a0b))) {
-  //     Block::PrintBlock(key_okvs[i]);
-  //     std::cout << i << std::endl;
-  //   }
-  // }
-  // for (int i = 0; i < key_okvs.size(); ++i) {
-  //       bool isDuplicate = false;
-  //       for (int j = i + 1; j < key_okvs.size(); ++j) {
-  //           if (Block::Compare(key_okvs[i],key_okvs[j])) {
-  //             Block::PrintBlock(key_okvs[i]);
-  //             Block::PrintBlock(key_okvs[j]);
-  //             std::cout<<"dumplacate keys at"<<i<<" "<<j<<std::endl;
-  //           }
-  //       }
-  //   }
-  // std::cout << "begin solve" << std::endl;
-  // baxos.solve(simple_table_1d, oprf_result, encode_result, 0, 8);
-  // baxos.decode(key_okvs,val_okvs_2,encode_result,8);
-  // std::cout<<Block::Compare(val_okvs,val_okvs_2)<<std::endl;
-  // // send OKVS
-  // io.SendBlocks(encode_result.data(), encode_result.size());
-  // // EQ
-  // std::cout << "begin eq:" << std::endl;
-  // Block::PrintBlocks(random_values);
+
   std::vector<uint8_t> ans;
   {
     ProfileScope profile_scope(profiler, "block_equality", candidate_idx);
-    try
-    {
-      ans = perform_block_equality(random_values, context, sock, ioArr, chl);
-    }
-    catch (const char *e)
-    {
-      std::cerr << "[4cycle] " << role_name(context.role)
-                << " candidate=" << candidate_idx
-                << " failed in sender perform_block_equality: " << e
-                << " random_values=" << random_values.size()
-                << std::endl;
-      throw;
-    }
-    catch (const std::exception &e)
-    {
-      std::cerr << "[4cycle] " << role_name(context.role)
-                << " candidate=" << candidate_idx
-                << " failed in sender perform_block_equality: " << e.what()
-                << " random_values=" << random_values.size()
-                << std::endl;
-      throw;
-    }
+    ans = perform_block_equality(random_values, context, sock, ioArr, chl);
   }
-  
-  // std::cout << "Server[u=" << candidate_idx << "] shares:";
-  // for (auto i = 0; i < ans.size(); i ++)
-  //   std::cout << " " << static_cast<int>(ans[i]);
-  // std::cout << std::endl;
-  
-  // for (auto i = 0; i < ans.size(); i++)
-  //   if (ans[i] == 1)
-  //     std::cout << "1 ";
-  //   else
-  //     std::cout << "0 ";
-  // std::cout << std::endl;
-
-  // // auto pp_ot = ALSZOTE::Setup(BASE_LEN);
-  // // std::vector<block> ot1(384,Block::all_one_block);
-  // // std::vector<block> ot2(384,Block::all_one_block);
-  // // ALSZOTE::Send(io, pp_ot, ot1, ot2, 384);
 
   block psi_ca_ans = Block::zero_block;
   {
@@ -1596,53 +1316,20 @@ void recv_test()
 }
 int main(int argc, char **argv)
 {
-  // std::cout << "[4cycle] entry ready" << std::endl;
-  // test_baxos_block();
-  // return 0;
   auto options = read_test_options(argc, argv);
   file_name += options.name;
   file_name += "/";
-  // std::cout<<file_name<<std::endl;
-  // return 0;
+
   uint64_t x_value = options.x_value;
   uint64_t n_value = options.n_value;
   auto context = options.context;
 
   std::vector<block> neighbors;
   if (x_value != std::numeric_limits<uint64_t>::max())
-    neighbors =
-        read_to_block(file_name + "neighbor_" +
-                      std::to_string(x_value) + ".txt");
-  // std::cout << context.role << " " << x_value << " " << n_value << std::endl;
-  // Block::PrintBlocks(neighbors);
-  // ./bin/gcf_4cycle --idx 0 --role 0 --name test_6_1_4 --num_d 4 --num_v 6
-  // return 0;
-  // std::cout << "11111111111111\n";
+    neighbors = read_to_block(file_name + "neighbor_" + std::to_string(x_value) + ".txt");
 
-  
   std::vector<std::vector<block>> set;
-  try
-  {
-    set = test_request(context.role, x_value, n_value, neighbors);
-  }
-  catch (const char *e)
-  {
-    std::cerr << "[4cycle] test_request failed role=" << role_name(context.role)
-              << " query_vertex=" << x_value
-              << " neighbor_vertex=" << n_value
-              << " message=" << e
-              << std::endl;
-    throw;
-  }
-  catch (const std::exception &e)
-  {
-    std::cerr << "[4cycle] test_request failed role=" << role_name(context.role)
-              << " query_vertex=" << x_value
-              << " neighbor_vertex=" << n_value
-              << " message=" << e.what()
-              << std::endl;
-    throw;
-  }
+  set = test_request(context.role, x_value, n_value, neighbors);
   if (set.size() == 0)
     return 0;
   // std::cout << "over" << context.role << std::endl;
@@ -1714,9 +1401,7 @@ int main(int argc, char **argv)
 
   block total_2ans_share = Block::zero_block;
 
-  for (auto i = 0; i < 1010; i ++){ // NUM_VERTEX
-    try
-    {
+  for (auto i = 0; i < NUM_VERTEX; i ++){ // NUM_VERTEX
       block b_share = Block::zero_block;
       if (i == x_value) continue;
       if (context.role == SERVER){
@@ -1748,25 +1433,6 @@ int main(int argc, char **argv)
           std::cout << "The local 4cycle counting for vetex " << i << " is " << ((uint64_t *)(&final_ans))[0] << std::endl;
         }
       }
-    }
-    catch (const char *e)
-    {
-      std::cerr << "[4cycle] fatal char exception role=" << role_name(context.role)
-                << " query_vertex=" << x_value
-                << " candidate=" << i
-                << " message=" << e
-                << std::endl;
-      throw;
-    }
-    catch (const std::exception &e)
-    {
-      std::cerr << "[4cycle] fatal std exception role=" << role_name(context.role)
-                << " query_vertex=" << x_value
-                << " candidate=" << i
-                << " message=" << e.what()
-                << std::endl;
-      throw;
-    }
 
   }
   
@@ -1789,6 +1455,8 @@ int main(int argc, char **argv)
   }
   if (profiler)
   {
+    if (context.role == CLIENT)
+      std::this_thread::sleep_for(std::chrono::seconds(2));
     profiler->Print();
   }
 

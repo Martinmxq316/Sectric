@@ -327,9 +327,7 @@ void preprocess_vertex(uint64_t idx)
     // std::cout << "begin read" << 4000 + idx << std::endl;
 
     // auto start = std::chrono::steady_clock::now();
-    auto neighbors =
-        read_to_block(file_name + "neighbor_" +
-                        std::to_string(idx) + ".txt");
+    auto neighbors = read_to_block(file_name + "neighbor_" + std::to_string(idx) + ".txt");
     uint64_t num_neighbors = neighbors.size();
     auto num_add = std::max(uint64_t(0), MAX_DEGREE - num_neighbors);
     // std::cout << "begin add" << 4000 + idx << std::endl;
@@ -453,32 +451,7 @@ std::vector<std::vector<block>> neighbor_request(uint64_t idx, std::vector<block
         if (i == idx) continue;
         auto seed_ = PRG::SetSeed();
         neighbor_of_neighbor[i] = PRG::GenRandomBlocks(seed_, MAX_DEGREE);
-        try
-        {
-            baxos.decode(neighbors, neighbor_of_neighbor[i], neighbor_okvs[i], 8);
-        }
-        catch (const char *e)
-        {
-            std::cerr << "neighbor_request Baxos decode failed for query vertex " << idx
-                      << ", source vertex " << i
-                      << ": " << e
-                      << ", neighbors=" << neighbors.size()
-                      << ", okvs_size=" << neighbor_okvs[i].size()
-                      << ", baxos_output_size=" << size
-                      << std::endl;
-            throw;
-        }
-        catch (const std::exception &e)
-        {
-            std::cerr << "neighbor_request Baxos decode failed for query vertex " << idx
-                      << ", source vertex " << i
-                      << ": " << e.what()
-                      << ", neighbors=" << neighbors.size()
-                      << ", okvs_size=" << neighbor_okvs[i].size()
-                      << ", baxos_output_size=" << size
-                      << std::endl;
-            throw;
-        }
+        baxos.decode(neighbors, neighbor_of_neighbor[i], neighbor_okvs[i], 8);
         // std::cout << "Vertex " << i << std::endl;
         // Block::PrintBlocks(neighbor_of_neighbor[i]);
         // std::cout << "Decode OKVS of vertex " << i << std::endl;
