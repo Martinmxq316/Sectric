@@ -910,6 +910,7 @@ block psi_ca_receiver(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO:
   std::vector<uint8_t> ans;
   {
     ProfileScope profile_scope(profiler, "block_equality", candidate_idx);
+    std::cout << "------------The size of eq_blocks is " << eq_blocks.size() << "----------\n";
     ans = perform_block_equality(eq_blocks, context, sock, ioArr, chl);
   }
 

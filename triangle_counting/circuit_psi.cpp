@@ -618,6 +618,7 @@ void psi_ca_receiver(std::vector<block> &set, ENCRYPTO::PsiAnalyticsContext &con
   std::vector<uint8_t> ans;
   {
     ProfileScope profile_scope(profiler, "block_equality");
+    std::cout << "------------The size of eq_blocks is " << eq_blocks.size() << "----------\n";
     ans = perform_block_equality(eq_blocks, context, sock, ioArr, chl);
   }
 
@@ -867,6 +868,7 @@ void psi_ca_sender(std::vector<block> &set, uint64_t real_num1, ENCRYPTO::PsiAna
   std::vector<uint8_t> ans;
   {
     ProfileScope profile_scope(profiler, "block_equality");
+    // std::cout << "------------The size of eq_blocks is " << eq_blocks.size() << "----------\n";
     ans = perform_block_equality(random_values, context, sock, ioArr, chl);
   }
   // for (auto i = 0; i < ans.size(); i++)
@@ -1146,6 +1148,8 @@ int main(int argc, char **argv)
   protocol_profile_scope.reset();
   if (profiler)
   {
+    if (context.role == CLIENT)
+      std::this_thread::sleep_for(std::chrono::seconds(2));
     profiler->Print();
   }
   // run_eq(inputs, context, sock, ioArr, chl);
