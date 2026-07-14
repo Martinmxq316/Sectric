@@ -222,7 +222,8 @@ public:
 
     const auto old_flags = std::cout.flags();
     const auto old_precision = std::cout.precision();
-    std::cout << std::fixed << std::setprecision(3);
+    const auto old_fill = std::cout.fill();
+    std::cout << std::dec << std::setfill(' ') << std::fixed << std::setprecision(3);
     std::cout << "[PROFILE] role=" << role_name(role_)
               << " dataset=" << dataset_
               << " query=" << query_vertex_ << std::endl;
@@ -255,6 +256,7 @@ public:
     }
     std::cout.flags(old_flags);
     std::cout.precision(old_precision);
+    std::cout.fill(old_fill);
   }
 
 private:
@@ -806,7 +808,7 @@ size_t countDuplicates(const std::vector<uint64_t> &vec)
 
   return duplicateCount;
 }
-block psi_ca_receiver(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO::PsiAnalyticsContext &context, std::unique_ptr<CSocket> &sock,
+std::vector<block> psi_ca_receiver(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO::PsiAnalyticsContext &context, std::unique_ptr<CSocket> &sock,
                      sci::NetIO *ioArr[3], osuCrypto::Channel &chl, NetIO &io, NetIO &io2,
                      Profiler *profiler = nullptr)
 {
@@ -898,6 +900,8 @@ block psi_ca_receiver(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO:
     for (auto i = 0; i < idxs.size(); i++)
       eq_blocks[idxs[i]] = decode_result[idxs[i]];
   }
+
+  std::cout << "---------- Finished number " << candidate_idx << "----------" << std::endl;
   // Block::PrintBlocks(eq_blocks);
   // decode_result.clear();
   // decode_result.shrink_to_fit();
@@ -907,23 +911,89 @@ block psi_ca_receiver(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO:
   // result.shrink_to_fit();
   // baxos.~Baxos();
   // pp.~PP();
+
+  return eq_blocks;
+
+  // std::vector<uint8_t> ans;
+  // {
+  //   ProfileScope profile_scope(profiler, "block_equality", candidate_idx);
+  //   std::cout << "------------The size of eq_blocks is " << eq_blocks.size() << "----------\n";
+  //   ans = perform_block_equality(eq_blocks, context, sock, ioArr, chl);
+  // }
+
+  // block psi_ca_ans = Block::zero_block;
+  // {
+  //   ProfileScope profile_scope(profiler, "ot_sum", candidate_idx);
+  //   auto ot_r = PRG::GenRandomBlocks(seed, nbins);
+  //   std::vector<std::vector<block>> ot(2);
+  //   ot[0].reserve(nbins);
+  //   ot[1].reserve(nbins);
+  //   auto sum = 0;
+  //   // auto ck = std::get<1>(idx_cuckoo_table);
+  //   for (auto i = 0, j = 0; i < nbins; i++)
+  //   {
+  //     uint64_t tmp = 1;
+  //     auto block_0 = Block::MakeBlock(0, tmp);
+  //     ot[ans[i]].emplace_back(ot_r[i]);
+  //     // if (j < idxs.size() && i == idxs[j])
+  //     // {
+  //     //   auto tmp = map[((uint64_t *)(&ck[idxs[j]]))[0]];
+  //     //   // std::cout << tmp << std::endl;
+
+  //     //   block_0 = Block::MakeBlock(0, tmp);
+  //     //   sum += tmp;
+  //     //   j++;
+  //     // }
+  //     ot[1 - ans[i]].emplace_back(add_with_carry(ot_r[i], block_0));
+  //   }
+  //   // std::cout << sum << std::endl;
+  //   for (auto i = 0; i < 128 - nbins % 128; i++)
+  //   {
+  //     ot[0].emplace_back(Block::zero_block);
+  //     ot[1].emplace_back(Block::zero_block);
+  //   }
+  //   auto pp_ot = IKNPOTE::Setup(BASE_LEN);
+  //   // std::cout << nbins + (128 - nbins % 128) << " " << ot[0].size() << " " << ot[1].size()
+  //   //           << std::endl;
+  //   IKNPOTE::Send(io2, pp_ot, ot[0], ot[1], nbins + (128 - nbins % 128));
+  //   for (auto i = 0; i < nbins; i++)
+  //   {
+  //     psi_ca_ans = add_with_carry(psi_ca_ans, ot[ans[i]][i]);
+  //   }
+  // }
+  // // Block::PrintBlock(psi_ca_ans);
+  // // io2.SendBlock(psi_ca_ans);
+
+  // return neg_mod_2_128(psi_ca_ans);
+}
+
+block psi_ca_receiver_2(std::vector<block> &eq_blocks, uint64_t querier_idx, ENCRYPTO::PsiAnalyticsContext &context, std::unique_ptr<CSocket> &sock,
+                     sci::NetIO *ioArr[3], osuCrypto::Channel &chl, NetIO &io, NetIO &io2,
+                     Profiler *profiler = nullptr)
+{
   std::vector<uint8_t> ans;
+  PRG::Seed seed = PRG::SetSeed();
+
   {
-    ProfileScope profile_scope(profiler, "block_equality", candidate_idx);
-    std::cout << "------------The size of eq_blocks is " << eq_blocks.size() << "----------\n";
+    ProfileScope profile_scope(profiler, "block_equality");
+    // std::cout << "------------The size of eq_blocks is " << eq_blocks.size() << "----------\n";
     ans = perform_block_equality(eq_blocks, context, sock, ioArr, chl);
   }
 
-  block psi_ca_ans = Block::zero_block;
+  uint64_t binsize = eq_blocks.size();
+  uint64_t batchsize = binsize / (NUM_VERTEX - 1);
+
+  block b_share = Block::zero_block;
+  block final_share = Block::zero_block;
   {
-    ProfileScope profile_scope(profiler, "ot_sum", candidate_idx);
-    auto ot_r = PRG::GenRandomBlocks(seed, nbins);
+    ProfileScope profile_scope(profiler, "ot_sum");
+    auto ot_r = PRG::GenRandomBlocks(seed, binsize);
     std::vector<std::vector<block>> ot(2);
-    ot[0].reserve(nbins);
-    ot[1].reserve(nbins);
+    ot[0].reserve(binsize);
+    ot[1].reserve(binsize);
     auto sum = 0;
     // auto ck = std::get<1>(idx_cuckoo_table);
-    for (auto i = 0, j = 0; i < nbins; i++)
+    for (auto i = 0, j = 0; i < binsize; i++)
     {
       uint64_t tmp = 1;
       auto block_0 = Block::MakeBlock(0, tmp);
@@ -940,7 +1010,7 @@ block psi_ca_receiver(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO:
       ot[1 - ans[i]].emplace_back(add_with_carry(ot_r[i], block_0));
     }
     // std::cout << sum << std::endl;
-    for (auto i = 0; i < 128 - nbins % 128; i++)
+    for (auto i = 0; i < 128 - binsize % 128; i++)
     {
       ot[0].emplace_back(Block::zero_block);
       ot[1].emplace_back(Block::zero_block);
@@ -948,17 +1018,40 @@ block psi_ca_receiver(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO:
     auto pp_ot = IKNPOTE::Setup(BASE_LEN);
     // std::cout << nbins + (128 - nbins % 128) << " " << ot[0].size() << " " << ot[1].size()
     //           << std::endl;
-    IKNPOTE::Send(io2, pp_ot, ot[0], ot[1], nbins + (128 - nbins % 128));
-    for (auto i = 0; i < nbins; i++)
-    {
-      psi_ca_ans = add_with_carry(psi_ca_ans, ot[ans[i]][i]);
+    IKNPOTE::Send(io2, pp_ot, ot[0], ot[1], binsize + (128 - binsize % 128));
+    
+    for (auto i = 0; i < NUM_VERTEX - 1; i ++){
+      b_share = Block::zero_block;
+      uint64_t vertex = i < querier_idx ? i : (i + 1);
+      for (auto j = 0; j < batchsize; j ++){
+        b_share = add_with_carry(b_share, ot[ans[i * batchsize + j]][i * batchsize + j]);
+      }
+
+      b_share = neg_mod_2_128(b_share);
+
+      block term_share = Block::zero_block;
+      {
+        ProfileScope profile_scope(profiler, "beaver_square", vertex);
+        auto triple = generate_beaver_triples_128(CLIENT, io2, 1);
+        block bb_share = beaver_mul_share_128(b_share, b_share, triple, 0, context.role, io2);
+        term_share = sub_with_borrow(bb_share, b_share);
+        final_share = add_with_carry(final_share, term_share);
+      }
+
+      {
+        ProfileScope profile_scope(profiler, "term_exchange", vertex);
+        block total_share = Block::zero_block;
+        io2.ReceiveBlock(total_share);
+        block final_ans = add_with_carry(term_share, total_share);
+        std::cout << "The local 4cycle counting for vetex " << vertex << " is " << ((uint64_t *)(&final_ans))[0] << std::endl;
+      }
     }
   }
-  // Block::PrintBlock(psi_ca_ans);
-  // io2.SendBlock(psi_ca_ans);
 
-  return neg_mod_2_128(psi_ca_ans);
+  return final_share;
 }
+
+
 #include "../../Kunlun/crypto/aes.hpp"
 void send_baxos(NetIO &io, std::vector<block> &key, std::vector<block> &value, uint64_t baxos_size, uint64_t num)
 {
@@ -1011,7 +1104,7 @@ void send_baxos(NetIO &io, std::vector<block> &key, std::vector<block> &value, u
   io.SendBlocks(encode_result.data(), encode_result.size());
 }
 
-block psi_ca_sender(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO::PsiAnalyticsContext &context, std::unique_ptr<CSocket> &sock,
+std::vector<block> psi_ca_sender(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO::PsiAnalyticsContext &context, std::unique_ptr<CSocket> &sock,
                    sci::NetIO *ioArr[3], osuCrypto::Channel &chl, NetIO &io, NetIO &io2,
                    Profiler *profiler = nullptr)
 {
@@ -1101,34 +1194,84 @@ block psi_ca_sender(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO::P
   oprf_result.clear();
   oprf_result.shrink_to_fit();
 
+  return random_values;
+
+  // std::vector<uint8_t> ans;
+  // {
+  //   ProfileScope profile_scope(profiler, "block_equality", candidate_idx);
+  //   ans = perform_block_equality(random_values, context, sock, ioArr, chl);
+  // }
+
+  // block psi_ca_ans = Block::zero_block;
+  // {
+  //   ProfileScope profile_scope(profiler, "ot_sum", candidate_idx);
+  //   auto pp_ot = IKNPOTE::Setup(BASE_LEN);
+  //   for (auto i = 0; i < 128 - nbins % 128; i++)
+  //     ans.emplace_back(0);
+  //   // std::cout << nbins + (128 - nbins % 128) << " " << ans.size() << std::endl;
+  //   std::vector<block> vec_result_real = IKNPOTE::Receive(io2, pp_ot, ans, ans.size());
+  //   // Block::PrintBlocks(vec_result_real);
+  //   for (auto i = 0; i < nbins; i++)
+  //   {
+  //     psi_ca_ans = add_with_carry(psi_ca_ans, vec_result_real[i]);
+  //   }
+  // }
+  // // io2.SendBlock(psi_ca_ans);
+
+  // // block psi_ca_tmp;
+  // // io2.ReceiveBlock(psi_ca_tmp);
+  // // auto block_ans = sub_with_borrow(psi_ca_ans, psi_ca_tmp);
+  // // Block::PrintBlock(block_ans);
+  // // std::cout << ((uint64_t *)(&block_ans))[0] << std::endl;
+  // return psi_ca_ans;
+}
+
+block psi_ca_sender_2(std::vector<block> &random_values, uint64_t querier_idx, ENCRYPTO::PsiAnalyticsContext &context, std::unique_ptr<CSocket> &sock,
+                   sci::NetIO *ioArr[3], osuCrypto::Channel &chl, NetIO &io, NetIO &io2,
+                   Profiler *profiler = nullptr){
   std::vector<uint8_t> ans;
   {
-    ProfileScope profile_scope(profiler, "block_equality", candidate_idx);
+    ProfileScope profile_scope(profiler, "block_equality");
     ans = perform_block_equality(random_values, context, sock, ioArr, chl);
   }
 
-  block psi_ca_ans = Block::zero_block;
+  uint64_t binsize = random_values.size();
+  uint64_t batchsize = binsize / (NUM_VERTEX - 1);
+
+  block b_share = Block::zero_block;
+  block final_share = Block::zero_block;
   {
-    ProfileScope profile_scope(profiler, "ot_sum", candidate_idx);
+    ProfileScope profile_scope(profiler, "ot_sum");
     auto pp_ot = IKNPOTE::Setup(BASE_LEN);
-    for (auto i = 0; i < 128 - nbins % 128; i++)
+    for (auto i = 0; i < 128 - binsize % 128; i++)
       ans.emplace_back(0);
     // std::cout << nbins + (128 - nbins % 128) << " " << ans.size() << std::endl;
     std::vector<block> vec_result_real = IKNPOTE::Receive(io2, pp_ot, ans, ans.size());
     // Block::PrintBlocks(vec_result_real);
-    for (auto i = 0; i < nbins; i++)
-    {
-      psi_ca_ans = add_with_carry(psi_ca_ans, vec_result_real[i]);
+    for (auto i = 0; i < NUM_VERTEX - 1; i ++){
+      b_share = Block::zero_block;
+      uint64_t vertex = i < querier_idx ? i : (i + 1);
+      for (auto j = 0; j < batchsize; j ++){
+        b_share = add_with_carry(b_share, vec_result_real[i * batchsize + j]);
+      }
+
+      block term_share = Block::zero_block;
+      {
+        ProfileScope profile_scope(profiler, "beaver_square", vertex);
+        auto triple = generate_beaver_triples_128(context.role, io2, 1);
+        block bb_share = beaver_mul_share_128(b_share, b_share, triple, 0, context.role, io2);
+        term_share = sub_with_borrow(bb_share, b_share);
+        final_share = add_with_carry(final_share, term_share);
+      }
+
+      {
+        ProfileScope profile_scope(profiler, "term_exchange", vertex);
+        io2.SendBlock(term_share);
+      }
     }
   }
-  // io2.SendBlock(psi_ca_ans);
 
-  // block psi_ca_tmp;
-  // io2.ReceiveBlock(psi_ca_tmp);
-  // auto block_ans = sub_with_borrow(psi_ca_ans, psi_ca_tmp);
-  // Block::PrintBlock(block_ans);
-  // std::cout << ((uint64_t *)(&block_ans))[0] << std::endl;
-  return psi_ca_ans;
+  return final_share;
 }
 
 struct CommandLineResult
@@ -1402,17 +1545,26 @@ int main(int argc, char **argv)
 
   block total_2ans_share = Block::zero_block;
 
+  std::vector<block> tot_block;
+  std::cout << "Initializatized size of tot_block is " << tot_block.size() << std::endl;
+
   for (auto i = 0; i < NUM_VERTEX; i ++){ // NUM_VERTEX
       block b_share = Block::zero_block;
+      std::vector<block> tmp_block;
       if (i == x_value) continue;
       if (context.role == SERVER){
         ProfileScope profile_scope(profiler.get(), "psi_ca_total", i);
-        b_share = psi_ca_sender(set[i], i, context, sock, ioArr, chl, *io, *io2, profiler.get());
+        tmp_block = psi_ca_sender(set[i], i, context, sock, ioArr, chl, *io, *io2, profiler.get());
+        concatenate_vectors(tot_block, tmp_block);
       }
       else{
         ProfileScope profile_scope(profiler.get(), "psi_ca_total", i);
-        b_share = psi_ca_receiver(set[i], i, context, sock, ioArr, chl, *io, *io2, profiler.get());
+        tmp_block = psi_ca_receiver(set[i], i, context, sock, ioArr, chl, *io, *io2, profiler.get());
+        concatenate_vectors(tot_block, tmp_block);
       }
+      
+      continue;
+
       block term_share = Block::zero_block;
       {
         ProfileScope profile_scope(profiler.get(), "beaver_square", i);
@@ -1436,7 +1588,25 @@ int main(int argc, char **argv)
       }
 
   }
-  
+
+  // if (context.role == SERVER){
+  //   std::cout << "The size of Server's block is " << tot_block.size() << std::endl;
+  //   for (int i = 0; i < tot_block.size(); i ++)
+  //     Block::PrintBlock(tot_block[i]);
+  // }
+
+  // else if (context.role == CLIENT){
+  //   std::this_thread::sleep_for(std::chrono::seconds(2));
+  //   std::cout << "The size of Client's block is " << tot_block.size() << std::endl;
+  //   for (int i = 0; i < tot_block.size(); i ++)
+  //     Block::PrintBlock(tot_block[i]);
+  // }
+
+  if (context.role == SERVER)
+    total_2ans_share =  psi_ca_sender_2(tot_block, x_value, context, sock, ioArr, chl, *io, *io2, profiler.get());
+  else if (context.role == CLIENT)
+    total_2ans_share = psi_ca_receiver_2(tot_block, x_value, context, sock, ioArr, chl, *io, *io2, profiler.get());
+
   {
     ProfileScope profile_scope(profiler.get(), "final_total_exchange");
     if (context.role == SERVER){
@@ -1460,63 +1630,6 @@ int main(int argc, char **argv)
       std::this_thread::sleep_for(std::chrono::seconds(2));
     profiler->Print();
   }
-
-
-  // if (context.role == SERVER)
-  // {
-  //   NetIO io("server", "", 8080);
-  //   NetIO io2("client", "127.0.0.1", 8081);
-  //   send_test();
-  //   ioArr[0] = new sci::NetIO(nullptr, context.port + 1);
-  //   ioArr[1] = new sci::NetIO(nullptr, context.port + 2);
-  //   ioArr[2] = new sci::NetIO(nullptr, context.port + 3);
-  //   ep = new osuCrypto::Session(ios, context.address, context.port + 4,
-  //                               osuCrypto::SessionMode::Server, name);
-  //   chl = ep->addChannel(name, name);
-  //   ResetCommunication(sock, chl, ioArr, context);
-  //   psi_ca_sender(set[0], neighbors.size() * MAX_DEGREE, context, sock, ioArr, chl, io, io2);
-  //   auto comm = io.PrintStats();
-  //   auto comm2 = io2.PrintStats();
-  //   comm_send += std::get<0>(comm) + std::get<0>(comm2);
-  //   comm_recv += std::get<1>(comm) + std::get<1>(comm2);
-  // }
-  // else
-  // {
-  //   NetIO io("client", "127.0.0.1", 8080);
-  //   NetIO io2("server", "", 8081);
-  //   recv_test();
-  //   ioArr[0] = new sci::NetIO(context.address.c_str(), context.port + 1);
-  //   ioArr[1] = new sci::NetIO(context.address.c_str(), context.port + 2);
-  //   ioArr[2] = new sci::NetIO(context.address.c_str(), context.port + 3);
-  //   ep = new osuCrypto::Session(ios, context.address, context.port + 4,
-  //                               osuCrypto::SessionMode::Client, name);
-  //   chl = ep->addChannel(name, name);
-  //   ResetCommunication(sock, chl, ioArr, context);
-
-  //   psi_ca_receiver(set[0], context, sock, ioArr, chl, io, io2);
-  //   auto comm = io.PrintStats();
-  //   auto comm2 = io2.PrintStats();
-  //   comm_send += std::get<0>(comm) + std::get<0>(comm2);
-  //   comm_recv += std::get<1>(comm) + std::get<1>(comm2);
-  // }
-  // AccumulateCommunicationPSI(sock, chl, ioArr, context);
-  // PrintCommunication(context);
-
-  // auto comm_send_double = (double)(context.sentBytes + comm_send) / ((1.0 * (1ULL << 20)));
-  // auto comm_recv_double = (double)(context.recvBytes + comm_recv) / ((1.0 * (1ULL << 20)));
-  // std::cout << context.role << ": Total Sent Data (MB): " << comm_send_double << std::endl;
-  // std::cout << context.role << ": Total Received Data (MB): " << comm_recv_double << std::endl;
-  // // run_eq(inputs, context, sock, ioArr, chl);
-
-  // run_circuit_psi(inputs, context, sock, ioArr, chl);
-  // PrintTimings(context);
-  // AccumulateCommunicationPSI(sock, chl, ioArr, context);
-  // PrintCommunication(context);
-
-  // End Connection
-
-  // printFileContent("res_share_P0.dat");
-  // printFileContent("res_share_P1.dat");
 
   sock->Close();
   chl.close();
