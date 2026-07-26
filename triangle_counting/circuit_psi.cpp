@@ -586,7 +586,7 @@ void psi_ca_receiver(std::vector<block> &set, ENCRYPTO::PsiAnalyticsContext &con
     {
       std::cerr << "[Error] Stash of size " << cuckoo_table.GetStashSize() << " occured\n";
     }
-    auto idx_cuckoo_table = cuckoo_table.AsRawVectorNoID();
+    auto idx_cuckoo_table = cuckoo_table.AsRawVectorNoID(0);
     idxs = std::get<0>(idx_cuckoo_table);
     cuckoo_table_v = std::get<1>(idx_cuckoo_table);
   }

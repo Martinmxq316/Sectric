@@ -111,6 +111,14 @@ uint64_t round_up_to_multiple_u64(uint64_t value, uint64_t multiple)
   return remainder == 0 ? value : value + multiple - remainder;
 }
 
+uint64_t well_padded_nbins(uint64_t raw_bin_num)
+{
+  uint64_t res = round_up_to_multiple_u64(raw_bin_num, 8);
+  if (res == checked_pow2_u64(ceil_log2_u64(res)))
+    res += 8;
+  return res;
+}
+
 uint64_t padded_psi_nbins(uint64_t raw_bin_num)
 {
   // uint64_t kMinPsiBins = std::min<uint64_t>(ceil_log2_u64(raw_bin_num), 8);
@@ -808,71 +816,93 @@ size_t countDuplicates(const std::vector<uint64_t> &vec)
 
   return duplicateCount;
 }
-std::vector<block> psi_ca_receiver(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO::PsiAnalyticsContext &context, std::unique_ptr<CSocket> &sock,
+void psi_ca_receiver(std::vector<std::vector<block>> &set, uint64_t querier_idx, ENCRYPTO::PsiAnalyticsContext &context, std::unique_ptr<CSocket> &sock,
                      sci::NetIO *ioArr[3], osuCrypto::Channel &chl, NetIO &io, NetIO &io2,
                      Profiler *profiler = nullptr)
 {
   VOLEOPRF::PP pp;
   uint64_t nbins = 0;
+  uint64_t real_total_bins = 0;
+  uint64_t padded_total_bins = 0;
   PRG::Seed seed = PRG::SetSeed(); // initialize PRG
-  std::vector<uint64_t> idxs;
-  std::vector<block> cuckoo_table_v;
   {
-    ProfileScope profile_scope(profiler, "prepare_table", candidate_idx);
-    uint64_t bin_num = MAX_DEGREE * 1.27;
-    // pp = VOLEOPRF::Setup(ceil_log2_u64(bin_num));
-    // std::cout << "!!!!" << bin_num << " " << pp.INPUT_NUM << std::endl;
-    nbins = padded_psi_nbins(bin_num);
-    // std::cout << "print:" << MAX_DEGREE << " " << bin_num << " " << nbins << std::endl;
-    pp = VOLEOPRF::Setup(ceil_log2_u64(nbins));
+    ProfileScope profile_scope(profiler, "prepare_table", querier_idx);
+    // nbins = round_up_to_multiple_u64((uint64_t)(MAX_DEGREE * 1.27), 8);
+    nbins = well_padded_nbins((uint64_t)(MAX_DEGREE * 1.27));
     io.SendBytes(&nbins, 8);
-    std::vector<uint64_t> vec;
-    std::vector<uint64_t> values;
-    std::unordered_map<uint64_t, uint64_t> map;
-    for (auto i = 0; i < MAX_DEGREE; i++)
-    {
-      uint64_t low = ((uint64_t *)(&set[i]))[0];
-      uint64_t high = ((uint64_t *)(&set[i]))[1];
-      vec.emplace_back(low ^ high);
-      values.emplace_back(1);
-      map[vec[i]] = values[i];
-      // std::cout<<low<<"+"<<high<<" ";
-    }
 
-    // std::cout << countDuplicates(vec) << std::endl;
-    ENCRYPTO::CuckooTable cuckoo_table(static_cast<std::size_t>(nbins));
-    cuckoo_table.SetNumOfHashFunctions(context.nfuns);
-    cuckoo_table.Insert(vec);
-    cuckoo_table.MapElements();
-    // auto add = cuckoo_table.GetElementAddresses();
-    if (cuckoo_table.GetStashSize() > 0u)
-    {
-      std::cerr << "[Error] Stash of size " << cuckoo_table.GetStashSize() << " occured\n";
-    }
-    auto idx_cuckoo_table = cuckoo_table.AsRawVectorNoID();
-    idxs = std::get<0>(idx_cuckoo_table);
-    cuckoo_table_v = std::get<1>(idx_cuckoo_table);
-    vec.clear();
-    vec.shrink_to_fit();
+    real_total_bins = nbins * (NUM_VERTEX - 1);
+    padded_total_bins = padded_psi_nbins(real_total_bins);
+    io.SendBytes(&padded_total_bins, 8);
   }
+  
+  std::vector<uint64_t> combined_idxs;
+  std::vector<block> combined_cuckoo_table;
+  uint64_t idcnt = 0;
+
+  for (uint64_t i = 0; i < NUM_VERTEX; i ++){
+    if (i == querier_idx) continue;
+
+    {
+      ProfileScope profile_scope(profiler, "prepare_table", i);
+
+      std::vector<uint64_t> idxs;
+      std::vector<block> cuckoo_table_v;
+      std::vector<uint64_t> vec;
+      std::vector<uint64_t> values;
+      std::unordered_map<uint64_t, uint64_t> map;
+      for (auto j = 0; j < MAX_DEGREE; j++)
+      {
+        uint64_t low = ((uint64_t *)(&set[i][j]))[0];
+        uint64_t high = ((uint64_t *)(&set[i][j]))[1];
+        vec.emplace_back(low ^ high);
+        values.emplace_back(1);
+        map[vec[j]] = values[j];
+      }
+
+      ENCRYPTO::CuckooTable cuckoo_table(static_cast<std::size_t>(nbins));
+      cuckoo_table.SetNumOfHashFunctions(context.nfuns);
+      cuckoo_table.Insert(vec);
+      cuckoo_table.MapElements();
+      if (cuckoo_table.GetStashSize() > 0u)
+      {
+        std::cerr << "[Error] Stash of size " << cuckoo_table.GetStashSize() << " occured\n";
+      }
+      auto idx_cuckoo_table = cuckoo_table.AsRawVectorNoID(idcnt);
+      idxs = std::get<0>(idx_cuckoo_table);
+      cuckoo_table_v = std::get<1>(idx_cuckoo_table);
+      vec.clear();
+      vec.shrink_to_fit();
+
+      for (uint64_t local_idx : idxs)
+        combined_idxs.push_back(idcnt * nbins + local_idx);
+      
+      combined_cuckoo_table.insert(combined_cuckoo_table.end(), cuckoo_table_v.begin(), cuckoo_table_v.end());
+      idcnt ++;
+    }
+  }
+
+  for (int i = real_total_bins; i < padded_total_bins; i ++)
+    combined_cuckoo_table.push_back(_mm_set_epi64x(std::numeric_limits<uint64_t>::max(),i));
+
+
   // oprf
   // std::cout<<"begin oprf client:"<<std::endl;
   std::vector<block> result;
   {
-    ProfileScope profile_scope(profiler, "vole_oprf", candidate_idx);
-
-    result = VOLEOPRF::Client1(io, pp, cuckoo_table_v, cuckoo_table_v.size());
+    ProfileScope profile_scope(profiler, "vole_oprf");
+    pp = VOLEOPRF::Setup(ceil_log2_u64(padded_total_bins));
+    result = VOLEOPRF::Client1(io, pp, combined_cuckoo_table, combined_cuckoo_table.size());
  
   }
   
-  std::vector<block> eq_blocks(nbins, Block::zero_block);
+  std::vector<block> eq_blocks(real_total_bins, Block::zero_block);
   {
-    ProfileScope profile_scope(profiler, "okvs", candidate_idx);
-    // std::cout << "Reach first Baxos\n";
-    const auto degree_log = ceil_log2_u64(MAX_DEGREE);
+    ProfileScope profile_scope(profiler, "okvs");
+    const auto degree_log = ceil_log2_u64(MAX_DEGREE * (NUM_VERTEX - 1));
     auto first_baxos_bin_size = baxos_bin_size_from_log(degree_log);
     // std::cout << MAX_DEGREE  * 3 << " " << first_baxos_bin_size << std::endl;
-    Baxos<gf_128> baxos(MAX_DEGREE * 3, first_baxos_bin_size, 3);
+    Baxos<gf_128> baxos(MAX_DEGREE * (NUM_VERTEX - 1) * context.nfuns, first_baxos_bin_size, 3);
     // std::cout << "Pass first Baxos\n";
     uint64_t tmp;
     io2.ReceiveInteger(tmp);
@@ -884,24 +914,21 @@ std::vector<block> psi_ca_receiver(std::vector<block> &set, uint64_t candidate_i
     // Block::PrintBlocks(cuckoo_table_v);
 
     // std::cout << "begin eq:" << std::endl;
-    std::vector<block> decode_result(cuckoo_table_v.size());
+    std::vector<block> decode_result(combined_cuckoo_table.size());
 
-    baxos.decode(cuckoo_table_v, decode_result, okvs, 8);
+    baxos.decode(combined_cuckoo_table, decode_result, okvs, 8);
 
-    // Block::PrintBlock(decode_result[0]);
-    // Block::PrintBlock(decode_result[1]);
-    // // decode OKVS
 
-    for (auto i = 0; i < cuckoo_table_v.size(); i++)
+    for (auto i = 0; i < combined_cuckoo_table.size(); i++)
     {
       decode_result[i] ^= result[i];
     }
 
-    for (auto i = 0; i < idxs.size(); i++)
-      eq_blocks[idxs[i]] = decode_result[idxs[i]];
+    for (auto i = 0; i < combined_idxs.size(); i++)
+      eq_blocks[combined_idxs[i]] = decode_result[combined_idxs[i]];
   }
 
-  std::cout << "---------- Finished number " << candidate_idx << "----------" << std::endl;
+  // std::cout << "---------- Finished number " << candidate_idx << "----------" << std::endl;
   // Block::PrintBlocks(eq_blocks);
   // decode_result.clear();
   // decode_result.shrink_to_fit();
@@ -912,59 +939,86 @@ std::vector<block> psi_ca_receiver(std::vector<block> &set, uint64_t candidate_i
   // baxos.~Baxos();
   // pp.~PP();
 
-  return eq_blocks;
+  // return eq_blocks;
 
-  // std::vector<uint8_t> ans;
-  // {
-  //   ProfileScope profile_scope(profiler, "block_equality", candidate_idx);
-  //   std::cout << "------------The size of eq_blocks is " << eq_blocks.size() << "----------\n";
-  //   ans = perform_block_equality(eq_blocks, context, sock, ioArr, chl);
-  // }
+  std::vector<uint8_t> ans;
+  seed = PRG::SetSeed();
 
-  // block psi_ca_ans = Block::zero_block;
-  // {
-  //   ProfileScope profile_scope(profiler, "ot_sum", candidate_idx);
-  //   auto ot_r = PRG::GenRandomBlocks(seed, nbins);
-  //   std::vector<std::vector<block>> ot(2);
-  //   ot[0].reserve(nbins);
-  //   ot[1].reserve(nbins);
-  //   auto sum = 0;
-  //   // auto ck = std::get<1>(idx_cuckoo_table);
-  //   for (auto i = 0, j = 0; i < nbins; i++)
-  //   {
-  //     uint64_t tmp = 1;
-  //     auto block_0 = Block::MakeBlock(0, tmp);
-  //     ot[ans[i]].emplace_back(ot_r[i]);
-  //     // if (j < idxs.size() && i == idxs[j])
-  //     // {
-  //     //   auto tmp = map[((uint64_t *)(&ck[idxs[j]]))[0]];
-  //     //   // std::cout << tmp << std::endl;
+  {
+    ProfileScope profile_scope(profiler, "block_equality");
+    // std::cout << "------------The size of eq_blocks is " << eq_blocks.size() << "----------\n";
+    ans = perform_block_equality(eq_blocks, context, sock, ioArr, chl);
+  }
 
-  //     //   block_0 = Block::MakeBlock(0, tmp);
-  //     //   sum += tmp;
-  //     //   j++;
-  //     // }
-  //     ot[1 - ans[i]].emplace_back(add_with_carry(ot_r[i], block_0));
-  //   }
-  //   // std::cout << sum << std::endl;
-  //   for (auto i = 0; i < 128 - nbins % 128; i++)
-  //   {
-  //     ot[0].emplace_back(Block::zero_block);
-  //     ot[1].emplace_back(Block::zero_block);
-  //   }
-  //   auto pp_ot = IKNPOTE::Setup(BASE_LEN);
-  //   // std::cout << nbins + (128 - nbins % 128) << " " << ot[0].size() << " " << ot[1].size()
-  //   //           << std::endl;
-  //   IKNPOTE::Send(io2, pp_ot, ot[0], ot[1], nbins + (128 - nbins % 128));
-  //   for (auto i = 0; i < nbins; i++)
-  //   {
-  //     psi_ca_ans = add_with_carry(psi_ca_ans, ot[ans[i]][i]);
-  //   }
-  // }
-  // // Block::PrintBlock(psi_ca_ans);
-  // // io2.SendBlock(psi_ca_ans);
+  uint64_t binsize = eq_blocks.size();
+  uint64_t batchsize = binsize / (NUM_VERTEX - 1);
 
-  // return neg_mod_2_128(psi_ca_ans);
+  block b_share = Block::zero_block;
+  block final_share = Block::zero_block;
+  {
+    ProfileScope profile_scope(profiler, "ot_sum");
+    auto ot_r = PRG::GenRandomBlocks(seed, binsize);
+    std::vector<std::vector<block>> ot(2);
+    ot[0].reserve(binsize);
+    ot[1].reserve(binsize);
+    auto sum = 0;
+    for (auto i = 0, j = 0; i < binsize; i++){
+      uint64_t tmp = 1;
+      auto block_0 = Block::MakeBlock(0, tmp);
+      ot[ans[i]].emplace_back(ot_r[i]);
+      ot[1 - ans[i]].emplace_back(add_with_carry(ot_r[i], block_0));
+    }
+    // std::cout << sum << std::endl;
+    for (auto i = 0; i < (128 - binsize % 128) % 128; i++)
+    {
+      ot[0].emplace_back(Block::zero_block);
+      ot[1].emplace_back(Block::zero_block);
+    }
+    auto pp_ot = IKNPOTE::Setup(BASE_LEN);
+    // std::cout << nbins + (128 - nbins % 128) << " " << ot[0].size() << " " << ot[1].size()
+    //           << std::endl;
+    IKNPOTE::Send(io2, pp_ot, ot[0], ot[1], binsize + (128 - binsize % 128));
+
+    BeaverTripleShare128 triples;
+    {
+      ProfileScope profile_scope(profiler, "beaver_square");
+      triples = generate_beaver_triples_128(CLIENT, io2, NUM_VERTEX - 1);
+    }
+    for (auto i = 0; i < NUM_VERTEX - 1; i ++){
+      b_share = Block::zero_block;
+      uint64_t vertex = i < querier_idx ? i : (i + 1);
+      for (auto j = 0; j < batchsize; j ++){
+        b_share = add_with_carry(b_share, ot[ans[i * batchsize + j]][i * batchsize + j]);
+      }
+
+      b_share = neg_mod_2_128(b_share);
+
+      block term_share = Block::zero_block;
+      {
+        ProfileScope profile_scope(profiler, "beaver_square", vertex);
+        block bb_share = beaver_mul_share_128(b_share, b_share, triples, i, context.role, io2);
+        term_share = sub_with_borrow(bb_share, b_share);
+        final_share = add_with_carry(final_share, term_share);
+      }
+
+      {
+        ProfileScope profile_scope(profiler, "term_exchange", vertex);
+        block total_share = Block::zero_block;
+        io2.ReceiveBlock(total_share);
+        block final_ans = add_with_carry(term_share, total_share);
+        std::cout << "The local 4cycle counting for vetex " << vertex << " is " << ((uint64_t *)(&final_ans))[0] << std::endl;
+      }
+    }
+  }
+
+
+  {
+    ProfileScope profile_scope(profiler, "final_exchange");
+    block total_share = Block::zero_block;
+    io2.ReceiveBlock(total_share);
+    final_share = add_with_carry(final_share, total_share);
+    std::cout << "The local 4cycle counting is " << ((uint64_t *)(&final_share))[0]/2 << std::endl;
+  }
 }
 
 block psi_ca_receiver_2(std::vector<block> &eq_blocks,
@@ -1095,126 +1149,149 @@ void send_baxos(NetIO &io, std::vector<block> &key, std::vector<block> &value, u
   io.SendBlocks(encode_result.data(), encode_result.size());
 }
 
-std::vector<block> psi_ca_sender(std::vector<block> &set, uint64_t candidate_idx, ENCRYPTO::PsiAnalyticsContext &context, std::unique_ptr<CSocket> &sock,
+void psi_ca_sender(std::vector<std::vector<block>> &set, uint64_t querier_idx, ENCRYPTO::PsiAnalyticsContext &context, std::unique_ptr<CSocket> &sock,
                    sci::NetIO *ioArr[3], osuCrypto::Channel &chl, NetIO &io, NetIO &io2,
                    Profiler *profiler = nullptr)
 {
-  // test_baxos_block();
   VOLEOPRF::PP pp;
   PRG::Seed seed = PRG::SetSeed(fixed_seed, 0); // initialize PRG
   uint64_t nbins = 0;
-  std::vector<std::vector<block>> simple_table_vec;
-  std::vector<block> random_values;
-  std::vector<block> simple_table_1d;
+  uint64_t padded_total_bins = 0;
   {
-    ProfileScope profile_scope(profiler, "prepare_table", candidate_idx);
+    ProfileScope profile_scope(profiler, "prepare_table", querier_idx);
 
     io.ReceiveBytes(&nbins, 8);
-    pp = VOLEOPRF::Setup(ceil_log2_u64(nbins));
-    std::vector<uint64_t> vec;
-    for (auto i = 0; i < MAX_DEGREE; i++)
-    {
-      uint64_t low = ((uint64_t *)(&set[i]))[0];
-      uint64_t high = ((uint64_t *)(&set[i]))[1];
-      vec.emplace_back(low ^ high);
-    }
-
-    random_values = PRG::GenRandomBlocks(seed, nbins);
-
-    ENCRYPTO::SimpleTable simple_table(static_cast<std::size_t>(nbins));
-    simple_table.SetNumOfHashFunctions(context.nfuns);
-    simple_table.Insert(vec);
-    auto simple_table_size = simple_table.AsRaw2DVectorNoID();
-    simple_table_vec = std::get<0>(simple_table_size);
-    simple_table_1d.reserve(MAX_DEGREE);
-    for (auto &row : simple_table_vec)
-    {
-      simple_table_1d.insert(simple_table_1d.end(), row.begin(), row.end());
-    }
+    io.ReceiveBytes(&padded_total_bins, 8);
   }
+
+  uint64_t idcnt = 0;
+  std::vector<std::vector<block>> combined_simple_table_vec;
+  std::vector<block> simple_table_1d;
+  std::vector<block> random_values;
+
+  for (uint64_t i = 0; i < NUM_VERTEX; i ++){
+    if (i == querier_idx) continue;
+
+    {
+      ProfileScope profile_scope(profiler, "prepare_table", i);
+
+      std::vector<std::vector<block>> simple_table_vec;
+
+      std::vector<uint64_t> vec;
+
+      for (auto j = 0; j < MAX_DEGREE; j++){
+        uint64_t low = ((uint64_t *)(&set[i][j]))[0];
+        uint64_t high = ((uint64_t *)(&set[i][j]))[1];
+        vec.emplace_back(low ^ high);
+      }
+      
+      ENCRYPTO::SimpleTable simple_table(static_cast<std::size_t>(nbins));
+      simple_table.SetNumOfHashFunctions(context.nfuns);
+      simple_table.Insert(vec);
+      auto simple_table_size = simple_table.AsRaw2DVectorNoID();
+      simple_table_vec = std::get<0>(simple_table_size);
+      combined_simple_table_vec.insert(combined_simple_table_vec.end(), simple_table_vec.begin(), simple_table_vec.end());
+    }
+
+  }
+
+  simple_table_1d.reserve(MAX_DEGREE * NUM_VERTEX * context.nfuns);
+  for (auto &row : combined_simple_table_vec)
+      simple_table_1d.insert(simple_table_1d.end(), row.begin(), row.end());
+
+  random_values = PRG::GenRandomBlocks(seed, nbins * (NUM_VERTEX - 1));
 
   std::vector<uint8_t> oprf_key;
   {
-    ProfileScope profile_scope(profiler, "vole_oprf", candidate_idx);
+    ProfileScope profile_scope(profiler, "vole_oprf");
 
+    pp = VOLEOPRF::Setup(ceil_log2_u64(padded_total_bins));
     oprf_key = VOLEOPRF::Server1(io, pp);
   }
 
   std::vector<block> oprf_result;
   {
-    ProfileScope profile_scope(profiler, "oprf_evaluate", candidate_idx);
+    ProfileScope profile_scope(profiler, "oprf_evaluate");
 
     oprf_result = VOLEOPRF::Evaluate1(pp, oprf_key, simple_table_1d, simple_table_1d.size());
     auto tmp = 0;
-    // std::cout<<"end evaluate"<<std::endl;s
-    // getchar();
-    // Block::PrintBlocks(simple_table_vec[0]);
-    // getchar();
-    for (auto i = 0; i < simple_table_vec.size(); i++)
+    for (auto i = 0; i < combined_simple_table_vec.size(); i++)
     {
-      std::vector<block> &v = simple_table_vec[i];
-      // key_okvs.insert(key_okvs.end(), v.begin(), v.end());
-      // Block::PrintBlocks(simple_table_vec[i]);
-      // std::cout << "----------------------" << i << "------------------------" << std::endl;
-      // Block::PrintBlocks(oprf_result);
+      std::vector<block> &v = combined_simple_table_vec[i];
       for (auto j = 0; j < v.size(); j++, tmp++)
       {
         oprf_result[tmp] = (random_values[i] ^ oprf_result[tmp]);
       }
       v.clear();
       v.shrink_to_fit();
-      // if (i % 1000 == 0)
-      //   std::cout << "----------------------" << i << "------------------------" << std::endl;
     }
-    simple_table_vec.clear();
-    simple_table_vec.shrink_to_fit();
+    combined_simple_table_vec.clear();
+    combined_simple_table_vec.shrink_to_fit();
   }
-  uint64_t baxos_size = MAX_DEGREE * 3;
-  // io.SendBytes(&baxos_size, 8);
-
-  // std::vector<block> k=PRG::GenRandomBlocks(seed,MAX_DEGREE*NUM_VERTEX*3);
-  // std::vector<block> v=PRG::GenRandomBlocks(seed,MAX_DEGREE*NUM_VERTEX*3);
+  uint64_t baxos_size = MAX_DEGREE * (NUM_VERTEX - 1) * 3;
   {
-    ProfileScope profile_scope(profiler, "okvs", candidate_idx);
+    ProfileScope profile_scope(profiler, "okvs");
 
-    send_baxos(io2, simple_table_1d, oprf_result, MAX_DEGREE * 3, ceil_log2_u64(MAX_DEGREE));
+    send_baxos(io2, simple_table_1d, oprf_result, MAX_DEGREE * (NUM_VERTEX - 1) * context.nfuns, ceil_log2_u64(MAX_DEGREE * (NUM_VERTEX - 1)));
     
   }
-  simple_table_1d.clear();
-  simple_table_1d.shrink_to_fit();
-  oprf_result.clear();
-  oprf_result.shrink_to_fit();
+  // simple_table_1d.clear();
+  // simple_table_1d.shrink_to_fit();
+  // oprf_result.clear();
+  // oprf_result.shrink_to_fit();
 
-  return random_values;
+  // return random_values;
 
-  // std::vector<uint8_t> ans;
-  // {
-  //   ProfileScope profile_scope(profiler, "block_equality", candidate_idx);
-  //   ans = perform_block_equality(random_values, context, sock, ioArr, chl);
-  // }
+  std::vector<uint8_t> ans;
+  {
+    ProfileScope profile_scope(profiler, "block_equality");
+    ans = perform_block_equality(random_values, context, sock, ioArr, chl);
+  }
 
-  // block psi_ca_ans = Block::zero_block;
-  // {
-  //   ProfileScope profile_scope(profiler, "ot_sum", candidate_idx);
-  //   auto pp_ot = IKNPOTE::Setup(BASE_LEN);
-  //   for (auto i = 0; i < 128 - nbins % 128; i++)
-  //     ans.emplace_back(0);
-  //   // std::cout << nbins + (128 - nbins % 128) << " " << ans.size() << std::endl;
-  //   std::vector<block> vec_result_real = IKNPOTE::Receive(io2, pp_ot, ans, ans.size());
-  //   // Block::PrintBlocks(vec_result_real);
-  //   for (auto i = 0; i < nbins; i++)
-  //   {
-  //     psi_ca_ans = add_with_carry(psi_ca_ans, vec_result_real[i]);
-  //   }
-  // }
-  // // io2.SendBlock(psi_ca_ans);
+  uint64_t binsize = random_values.size();
+  uint64_t batchsize = binsize / (NUM_VERTEX - 1);
 
-  // // block psi_ca_tmp;
-  // // io2.ReceiveBlock(psi_ca_tmp);
-  // // auto block_ans = sub_with_borrow(psi_ca_ans, psi_ca_tmp);
-  // // Block::PrintBlock(block_ans);
-  // // std::cout << ((uint64_t *)(&block_ans))[0] << std::endl;
-  // return psi_ca_ans;
+  block b_share = Block::zero_block;
+  block final_share = Block::zero_block;
+  {
+    ProfileScope profile_scope(profiler, "ot_sum");
+    auto pp_ot = IKNPOTE::Setup(BASE_LEN);
+    for (auto i = 0; i < (128 - binsize % 128) % 128; i++)
+      ans.emplace_back(0);
+    // std::cout << nbins + (128 - nbins % 128) << " " << ans.size() << std::endl;
+    std::vector<block> vec_result_real = IKNPOTE::Receive(io2, pp_ot, ans, ans.size());
+    // Block::PrintBlocks(vec_result_real);
+    BeaverTripleShare128 triples;
+    {
+      ProfileScope profile_scope(profiler, "beaver_square");
+      triples = generate_beaver_triples_128(context.role, io2, NUM_VERTEX - 1);
+    }
+    for (auto i = 0; i < NUM_VERTEX - 1; i ++){
+      b_share = Block::zero_block;
+      uint64_t vertex = i < querier_idx ? i : (i + 1);
+      for (auto j = 0; j < batchsize; j ++){
+        b_share = add_with_carry(b_share, vec_result_real[i * batchsize + j]);
+      }
+
+      block term_share = Block::zero_block;
+      {
+        ProfileScope profile_scope(profiler, "beaver_square", vertex);
+        block bb_share = beaver_mul_share_128(b_share, b_share, triples, i, context.role, io2);
+        term_share = sub_with_borrow(bb_share, b_share);
+        final_share = add_with_carry(final_share, term_share);
+      }
+
+      {
+        ProfileScope profile_scope(profiler, "term_exchange", vertex);
+        io2.SendBlock(term_share);
+      }
+    }
+  }
+
+  {
+    ProfileScope profile_scope(profiler, "final_exchange");
+    io2.SendBlock(final_share);
+  }
 }
 
 block psi_ca_sender_2(std::vector<block> &random_values,
@@ -1539,85 +1616,21 @@ int main(int argc, char **argv)
     protocol_profile_scope = std::make_unique<ProfileScope>(profiler.get(), "protocol_total");
   }
 
-  block total_2ans_share = Block::zero_block;
-  constexpr uint64_t kCandidateBatchSize = 32;
-  std::vector<block> batch_blocks;
-  std::vector<uint64_t> batch_vertices;
-  batch_vertices.reserve(kCandidateBatchSize);
-  uint64_t per_vertex_bins = 0;
 
-  auto flush_batch = [&]()
+
   {
-    if (batch_vertices.empty())
-      return;
-
-    block batch_share = Block::zero_block;
+    ProfileScope profile_scope(profiler.get(), "psi_ca_total");
     if (context.role == SERVER)
     {
-      batch_share = psi_ca_sender_2(batch_blocks, batch_vertices, context, sock, ioArr, chl,
-                                    *io, *io2, profiler.get());
+      psi_ca_sender(set, x_value, context, sock, ioArr, chl, *io, *io2, profiler.get());
     }
     else
     {
-      batch_share = psi_ca_receiver_2(batch_blocks, batch_vertices, context, sock, ioArr, chl,
-                                      *io, *io2, profiler.get());
-    }
-    total_2ans_share = add_with_carry(total_2ans_share, batch_share);
-    batch_blocks.clear();
-    batch_vertices.clear();
-  };
-
-  for (uint64_t i = 0; i < NUM_VERTEX; i++)
-  {
-    if (i == x_value)
-      continue;
-
-    std::vector<block> tmp_block;
-    {
-      ProfileScope profile_scope(profiler.get(), "psi_ca_total", i);
-      if (context.role == SERVER)
-      {
-        tmp_block = psi_ca_sender(set[i], i, context, sock, ioArr, chl, *io, *io2,
-                                  profiler.get());
-      }
-      else
-      {
-        tmp_block = psi_ca_receiver(set[i], i, context, sock, ioArr, chl, *io, *io2,
-                                    profiler.get());
-      }
-    }
-
-    if (per_vertex_bins == 0)
-    {
-      per_vertex_bins = tmp_block.size();
-      if (per_vertex_bins == 0)
-        throw std::runtime_error("PSI candidate produced an empty bin vector");
-      batch_blocks.reserve(kCandidateBatchSize * per_vertex_bins);
-    }
-    else if (tmp_block.size() != per_vertex_bins)
-    {
-      throw std::runtime_error("inconsistent PSI bin count across candidates");
-    }
-
-    batch_blocks.insert(batch_blocks.end(), tmp_block.begin(), tmp_block.end());
-    batch_vertices.emplace_back(i);
-    if (batch_vertices.size() == kCandidateBatchSize)
-      flush_batch();
-  }
-  flush_batch();
-
-  {
-    ProfileScope profile_scope(profiler.get(), "final_total_exchange");
-    if (context.role == SERVER){
-      io2->SendBlock(total_2ans_share);
-    }
-    else{
-      block total_share = Block::zero_block;
-      io2->ReceiveBlock(total_share);
-      block final_ans = add_with_carry(total_2ans_share, total_share);
-      std::cout << "The local 4cycle counting is " << ((uint64_t *)(&final_ans))[0]/2 << std::endl;
+      psi_ca_receiver(set, x_value, context, sock, ioArr, chl, *io, *io2, profiler.get());
     }
   }
+
+
 
   if (protocol_profile_scope)
   {
