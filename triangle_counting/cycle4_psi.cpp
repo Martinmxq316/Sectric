@@ -816,11 +816,12 @@ size_t countDuplicates(const std::vector<uint64_t> &vec)
 
   return duplicateCount;
 }
+constexpr uint64_t kOprfCandidateBatchSize = 512;
+
 void psi_ca_receiver(std::vector<std::vector<block>> &set, uint64_t querier_idx, ENCRYPTO::PsiAnalyticsContext &context, std::unique_ptr<CSocket> &sock,
                      sci::NetIO *ioArr[3], osuCrypto::Channel &chl, NetIO &io, NetIO &io2,
                      Profiler *profiler = nullptr)
 {
-  VOLEOPRF::PP pp;
   uint64_t nbins = 0;
   uint64_t real_total_bins = 0;
   uint64_t padded_total_bins = 0;
@@ -867,6 +868,7 @@ void psi_ca_receiver(std::vector<std::vector<block>> &set, uint64_t querier_idx,
       if (cuckoo_table.GetStashSize() > 0u)
       {
         std::cerr << "[Error] Stash of size " << cuckoo_table.GetStashSize() << " occured\n";
+        std::exit(1);
       }
       auto idx_cuckoo_table = cuckoo_table.AsRawVectorNoID(idcnt);
       idxs = std::get<0>(idx_cuckoo_table);
@@ -889,11 +891,23 @@ void psi_ca_receiver(std::vector<std::vector<block>> &set, uint64_t querier_idx,
   // oprf
   // std::cout<<"begin oprf client:"<<std::endl;
   std::vector<block> result;
+  const uint64_t candidate_count = NUM_VERTEX - 1;
+  result.reserve(combined_cuckoo_table.size());
+  for (uint64_t candidate_begin = 0; candidate_begin < candidate_count;
+       candidate_begin += kOprfCandidateBatchSize)
   {
     ProfileScope profile_scope(profiler, "vole_oprf");
-    pp = VOLEOPRF::Setup(ceil_log2_u64(padded_total_bins));
-    result = VOLEOPRF::Client1(io, pp, combined_cuckoo_table, combined_cuckoo_table.size());
- 
+    const uint64_t candidate_end =
+        std::min(candidate_begin + kOprfCandidateBatchSize, candidate_count);
+    const uint64_t bin_begin = candidate_begin * nbins;
+    const uint64_t bin_end =
+        candidate_end == candidate_count ? padded_total_bins : candidate_end * nbins;
+    std::vector<block> batch_cuckoo_table(combined_cuckoo_table.begin() + bin_begin,
+                                          combined_cuckoo_table.begin() + bin_end);
+    auto batch_pp = VOLEOPRF::Setup(ceil_log2_u64(batch_cuckoo_table.size()));
+    auto batch_result =
+        VOLEOPRF::Client1(io, batch_pp, batch_cuckoo_table, batch_cuckoo_table.size());
+    result.insert(result.end(), batch_result.begin(), batch_result.end());
   }
   
   std::vector<block> eq_blocks(real_total_bins, Block::zero_block);
@@ -950,6 +964,7 @@ void psi_ca_receiver(std::vector<std::vector<block>> &set, uint64_t querier_idx,
     ans = perform_block_equality(eq_blocks, context, sock, ioArr, chl);
   }
 
+
   uint64_t binsize = eq_blocks.size();
   uint64_t batchsize = binsize / (NUM_VERTEX - 1);
 
@@ -977,7 +992,7 @@ void psi_ca_receiver(std::vector<std::vector<block>> &set, uint64_t querier_idx,
     auto pp_ot = IKNPOTE::Setup(BASE_LEN);
     // std::cout << nbins + (128 - nbins % 128) << " " << ot[0].size() << " " << ot[1].size()
     //           << std::endl;
-    IKNPOTE::Send(io2, pp_ot, ot[0], ot[1], binsize + (128 - binsize % 128));
+    IKNPOTE::Send(io2, pp_ot, ot[0], ot[1], binsize + (128 - binsize % 128) % 128);
 
     BeaverTripleShare128 triples;
     {
@@ -1001,13 +1016,13 @@ void psi_ca_receiver(std::vector<std::vector<block>> &set, uint64_t querier_idx,
         final_share = add_with_carry(final_share, term_share);
       }
 
-      {
-        ProfileScope profile_scope(profiler, "term_exchange", vertex);
-        block total_share = Block::zero_block;
-        io2.ReceiveBlock(total_share);
-        block final_ans = add_with_carry(term_share, total_share);
-        std::cout << "The local 4cycle counting for vetex " << vertex << " is " << ((uint64_t *)(&final_ans))[0] << std::endl;
-      }
+      // {
+      //   ProfileScope profile_scope(profiler, "term_exchange", vertex);
+      //   block total_share = Block::zero_block;
+      //   io2.ReceiveBlock(total_share);
+      //   block final_ans = add_with_carry(term_share, total_share);
+      //   std::cout << "The local 4cycle counting for vetex " << vertex << " is " << ((uint64_t *)(&final_ans))[0] << std::endl;
+      // }
     }
   }
 
@@ -1019,81 +1034,6 @@ void psi_ca_receiver(std::vector<std::vector<block>> &set, uint64_t querier_idx,
     final_share = add_with_carry(final_share, total_share);
     std::cout << "The local 4cycle counting is " << ((uint64_t *)(&final_share))[0]/2 << std::endl;
   }
-}
-
-block psi_ca_receiver_2(std::vector<block> &eq_blocks,
-                     const std::vector<uint64_t> &vertex_ids,
-                     ENCRYPTO::PsiAnalyticsContext &context, std::unique_ptr<CSocket> &sock,
-                     sci::NetIO *ioArr[3], osuCrypto::Channel &chl, NetIO &io, NetIO &io2,
-                     Profiler *profiler = nullptr)
-{
-  const uint64_t candidate_count = vertex_ids.size();
-  const uint64_t binsize = eq_blocks.size();
-  if (candidate_count == 0)
-    return Block::zero_block;
-  if (binsize == 0 || binsize % candidate_count != 0)
-    throw std::runtime_error("invalid receiver batch layout");
-
-  const uint64_t per_vertex_bins = binsize / candidate_count;
-  std::vector<uint8_t> ans;
-  PRG::Seed seed = PRG::SetSeed();
-
-  {
-    ProfileScope profile_scope(profiler, "block_equality");
-    // std::cout << "------------The size of eq_blocks is " << eq_blocks.size() << "----------\n";
-    ans = perform_block_equality(eq_blocks, context, sock, ioArr, chl);
-  }
-
-  std::vector<block> b_shares(candidate_count, Block::zero_block);
-  block final_share = Block::zero_block;
-  {
-    ProfileScope profile_scope(profiler, "ot_sum");
-    auto ot_r = PRG::GenRandomBlocks(seed, binsize);
-    std::vector<std::vector<block>> ot(2);
-    const uint64_t ot_pad = (128 - binsize % 128) % 128;
-    const uint64_t ot_len = binsize + ot_pad;
-    ot[0].reserve(ot_len);
-    ot[1].reserve(ot_len);
-    for (uint64_t i = 0; i < binsize; i++)
-    {
-      auto block_0 = Block::MakeBlock(0, 1);
-      ot[ans[i]].emplace_back(ot_r[i]);
-      ot[1 - ans[i]].emplace_back(add_with_carry(ot_r[i], block_0));
-    }
-    for (uint64_t i = 0; i < ot_pad; i++)
-    {
-      ot[0].emplace_back(Block::zero_block);
-      ot[1].emplace_back(Block::zero_block);
-    }
-    auto pp_ot = IKNPOTE::Setup(BASE_LEN);
-    IKNPOTE::Send(io2, pp_ot, ot[0], ot[1], ot_len);
-
-    for (uint64_t i = 0; i < candidate_count; i++)
-    {
-      const uint64_t offset = i * per_vertex_bins;
-      block mask_sum = Block::zero_block;
-      for (uint64_t j = 0; j < per_vertex_bins; j++)
-      {
-        const uint64_t idx = offset + j;
-        mask_sum = add_with_carry(mask_sum, ot[ans[idx]][idx]);
-      }
-      b_shares[i] = neg_mod_2_128(mask_sum);
-    }
-  }
-
-  {
-    ProfileScope profile_scope(profiler, "beaver_square");
-    auto triples = generate_beaver_triples_128(context.role, io2, candidate_count);
-    for (uint64_t i = 0; i < candidate_count; i++)
-    {
-      block bb_share = beaver_mul_share_128(b_shares[i], b_shares[i], triples, i,
-                                            context.role, io2);
-      block term_share = sub_with_borrow(bb_share, b_shares[i]);
-      final_share = add_with_carry(final_share, term_share);
-    }
-  }
-
-  return final_share;
 }
 
 
@@ -1153,7 +1093,6 @@ void psi_ca_sender(std::vector<std::vector<block>> &set, uint64_t querier_idx, E
                    sci::NetIO *ioArr[3], osuCrypto::Channel &chl, NetIO &io, NetIO &io2,
                    Profiler *profiler = nullptr)
 {
-  VOLEOPRF::PP pp;
   PRG::Seed seed = PRG::SetSeed(fixed_seed, 0); // initialize PRG
   uint64_t nbins = 0;
   uint64_t padded_total_bins = 0;
@@ -1195,39 +1134,61 @@ void psi_ca_sender(std::vector<std::vector<block>> &set, uint64_t querier_idx, E
 
   }
 
-  simple_table_1d.reserve(MAX_DEGREE * NUM_VERTEX * context.nfuns);
-  for (auto &row : combined_simple_table_vec)
-      simple_table_1d.insert(simple_table_1d.end(), row.begin(), row.end());
-
   random_values = PRG::GenRandomBlocks(seed, nbins * (NUM_VERTEX - 1));
 
-  std::vector<uint8_t> oprf_key;
-  {
-    ProfileScope profile_scope(profiler, "vole_oprf");
-
-    pp = VOLEOPRF::Setup(ceil_log2_u64(padded_total_bins));
-    oprf_key = VOLEOPRF::Server1(io, pp);
-  }
 
   std::vector<block> oprf_result;
+  simple_table_1d.reserve(MAX_DEGREE * NUM_VERTEX * context.nfuns);
+  oprf_result.reserve(MAX_DEGREE * NUM_VERTEX * context.nfuns);
+  const uint64_t candidate_count = NUM_VERTEX - 1;
+  for (uint64_t candidate_begin = 0; candidate_begin < candidate_count;
+       candidate_begin += kOprfCandidateBatchSize)
   {
-    ProfileScope profile_scope(profiler, "oprf_evaluate");
+    const uint64_t candidate_end =
+        std::min(candidate_begin + kOprfCandidateBatchSize, candidate_count);
+    const uint64_t row_begin = candidate_begin * nbins;
+    const uint64_t row_end = candidate_end * nbins;
+    std::vector<block> batch_simple_table_1d;
+    for (uint64_t row = row_begin; row < row_end; row++)
+      batch_simple_table_1d.insert(batch_simple_table_1d.end(),
+                                   combined_simple_table_vec[row].begin(),
+                                   combined_simple_table_vec[row].end());
 
-    oprf_result = VOLEOPRF::Evaluate1(pp, oprf_key, simple_table_1d, simple_table_1d.size());
-    auto tmp = 0;
-    for (auto i = 0; i < combined_simple_table_vec.size(); i++)
+    VOLEOPRF::PP batch_pp;
+    std::vector<uint8_t> batch_oprf_key;
     {
-      std::vector<block> &v = combined_simple_table_vec[i];
-      for (auto j = 0; j < v.size(); j++, tmp++)
-      {
-        oprf_result[tmp] = (random_values[i] ^ oprf_result[tmp]);
-      }
-      v.clear();
-      v.shrink_to_fit();
+      ProfileScope profile_scope(profiler, "vole_oprf");
+      uint64_t batch_bin_count = (candidate_end - candidate_begin) * nbins;
+      if (candidate_end == candidate_count)
+        batch_bin_count += padded_total_bins - candidate_count * nbins;
+      batch_pp = VOLEOPRF::Setup(ceil_log2_u64(batch_bin_count));
+      batch_oprf_key = VOLEOPRF::Server1(io, batch_pp);
     }
-    combined_simple_table_vec.clear();
-    combined_simple_table_vec.shrink_to_fit();
+
+    std::vector<block> batch_oprf_result;
+    {
+      ProfileScope profile_scope(profiler, "oprf_evaluate");
+      batch_oprf_result = VOLEOPRF::Evaluate1(
+          batch_pp, batch_oprf_key, batch_simple_table_1d, batch_simple_table_1d.size());
+      size_t result_idx = 0;
+      for (uint64_t row = row_begin; row < row_end; row++)
+      {
+        std::vector<block> &v = combined_simple_table_vec[row];
+        for (size_t j = 0; j < v.size(); j++, result_idx++)
+          batch_oprf_result[result_idx] = random_values[row] ^ batch_oprf_result[result_idx];
+        v.clear();
+        v.shrink_to_fit();
+      }
+    }
+
+    simple_table_1d.insert(simple_table_1d.end(),
+                           batch_simple_table_1d.begin(), batch_simple_table_1d.end());
+    oprf_result.insert(oprf_result.end(),
+                       batch_oprf_result.begin(), batch_oprf_result.end());
   }
+  combined_simple_table_vec.clear();
+  combined_simple_table_vec.shrink_to_fit();
+
   uint64_t baxos_size = MAX_DEGREE * (NUM_VERTEX - 1) * 3;
   {
     ProfileScope profile_scope(profiler, "okvs");
@@ -1241,7 +1202,6 @@ void psi_ca_sender(std::vector<std::vector<block>> &set, uint64_t querier_idx, E
   // oprf_result.shrink_to_fit();
 
   // return random_values;
-
   std::vector<uint8_t> ans;
   {
     ProfileScope profile_scope(profiler, "block_equality");
@@ -1281,10 +1241,10 @@ void psi_ca_sender(std::vector<std::vector<block>> &set, uint64_t querier_idx, E
         final_share = add_with_carry(final_share, term_share);
       }
 
-      {
-        ProfileScope profile_scope(profiler, "term_exchange", vertex);
-        io2.SendBlock(term_share);
-      }
+      // {
+      //   ProfileScope profile_scope(profiler, "term_exchange", vertex);
+      //   io2.SendBlock(term_share);
+      // }
     }
   }
 
@@ -1294,58 +1254,6 @@ void psi_ca_sender(std::vector<std::vector<block>> &set, uint64_t querier_idx, E
   }
 }
 
-block psi_ca_sender_2(std::vector<block> &random_values,
-                   const std::vector<uint64_t> &vertex_ids,
-                   ENCRYPTO::PsiAnalyticsContext &context, std::unique_ptr<CSocket> &sock,
-                   sci::NetIO *ioArr[3], osuCrypto::Channel &chl, NetIO &io, NetIO &io2,
-                   Profiler *profiler = nullptr){
-  const uint64_t candidate_count = vertex_ids.size();
-  const uint64_t binsize = random_values.size();
-  if (candidate_count == 0)
-    return Block::zero_block;
-  if (binsize == 0 || binsize % candidate_count != 0)
-    throw std::runtime_error("invalid sender batch layout");
-
-  const uint64_t per_vertex_bins = binsize / candidate_count;
-  std::vector<uint8_t> ans;
-  {
-    ProfileScope profile_scope(profiler, "block_equality");
-    ans = perform_block_equality(random_values, context, sock, ioArr, chl);
-  }
-
-  std::vector<block> b_shares(candidate_count, Block::zero_block);
-  block final_share = Block::zero_block;
-  {
-    ProfileScope profile_scope(profiler, "ot_sum");
-    auto pp_ot = IKNPOTE::Setup(BASE_LEN);
-    const uint64_t ot_pad = (128 - binsize % 128) % 128;
-    const uint64_t ot_len = binsize + ot_pad;
-    ans.insert(ans.end(), ot_pad, 0);
-    std::vector<block> vec_result_real = IKNPOTE::Receive(io2, pp_ot, ans, ot_len);
-    for (uint64_t i = 0; i < candidate_count; i++)
-    {
-      const uint64_t offset = i * per_vertex_bins;
-      for (uint64_t j = 0; j < per_vertex_bins; j++)
-      {
-        b_shares[i] = add_with_carry(b_shares[i], vec_result_real[offset + j]);
-      }
-    }
-  }
-
-  {
-    ProfileScope profile_scope(profiler, "beaver_square");
-    auto triples = generate_beaver_triples_128(context.role, io2, candidate_count);
-    for (uint64_t i = 0; i < candidate_count; i++)
-    {
-      block bb_share = beaver_mul_share_128(b_shares[i], b_shares[i], triples, i,
-                                            context.role, io2);
-      block term_share = sub_with_borrow(bb_share, b_shares[i]);
-      final_share = add_with_carry(final_share, term_share);
-    }
-  }
-
-  return final_share;
-}
 
 struct CommandLineResult
 {
